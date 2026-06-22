@@ -2,79 +2,128 @@
 import axios from "axios";
 import config from "./config.js";
 import { isBlacklisted } from "./blacklist.js";
+import { fetchTrendIntelligence } from "./trend-intel.js";
 
-const SYSTEM_PROMPT = `너는 대한민국의 소셜 미디어(인스타그램, 트위터)에서 가장 빠르게 떠오르는 F&B(음식, 디저트, 맛집) 트렌드를 포착하는 전문 트렌드 분석가이자 엔티티 추출기(Entity Extractor)이다.
+let _trendIntel = null;
+
+async function getTrendIntel() {
+  if (!_trendIntel) _trendIntel = await fetchTrendIntelligence();
+  return _trendIntel;
+}
+
+export function resetTrendIntel() { _trendIntel = null; }
+
+function buildSystemPrompt(today) {
+  return `너는 대한민국 F&B 업계의 '넥스트 트렌드'만 포착하는 초정밀 트렌드 스나이퍼이다.
+
+오늘 날짜: ${today}
+트렌드 판단 기준 시점: 오늘로부터 2~3일 이내. 1주일 전 유행도 이미 늦을 수 있다.
 
 # 미션
-제공된 인스타그램 게시글 본문 및 댓글 텍스트 뭉치를 분석하여, 최근 '급부상하고 있는 새로운 키워드'를 추출하라. 이미 대중화된 유행어(예: 마라탕, 탕후루, 두바이초콜릿 원형)는 제외하고, 새롭게 등장한 메뉴명, 디저트 종류, 특정 지역의 핫플레이스 매장명을 찾아내야 한다.
+인스타그램 텍스트에서 "지금 이 순간 막 태동하는" 마이크로 트렌드만 추출하라.
+핵심은 '신선도(Freshness)' — 트렌드는 하루하루가 다르다.
 
-# 추출 및 필터링 규칙
-1. 신조어/변형 메뉴: 기존 메뉴가 결합하거나 변형된 형태 (예: 두바이 쫀득 쿠키 -> '두쫀쿠', 상하이 황유녠가오 -> '버터떡')
-2. 핫플레이스/매장명: 특정 지역과 함께 언급되며 방문 인증이 급증하는 매장 이름 (예: 종로 광화문 근처 '설이동')
-3. 동시 언급 키워드: 하나의 포스트에서 함께 언급되는 키워드 쌍도 추출하라. 이 co-occurrence 정보는 트렌드 연결고리를 파악하는 데 핵심이다.
-4. 유사 키워드 병합: '두쫀쿠'와 '두쫀쿠키'처럼 같은 대상을 가리키는 변형은 대표 키워드 하나로 통합하라.
-5. 노이즈 제거: '좋아요', '맞팔', '이벤트', '공구', '선팔', '소통' 같은 광고성/소통성 키워드는 완전히 제외할 것.
+# 절대 제외 기준
+1. 이미 유행이 지났거나 대중화된 아이템과 그 변형
+2. 일반 음식/음료명, 전국 체인, 노이즈 키워드
+3. 매년 반복되는 계절 음식 (콩국수, 팥빙수, 호떡 등)
 
-# 출력 형식
-반드시 다른 설명 없이 아래와 같은 엄격한 JSON 형식의 List로만 답변해줘.
-[
-  {
-    "keyword": "추출된 키워드",
-    "category": "디저트 / 메뉴 / 매장명(지역) 중 선택",
-    "region": "언급된 지역 (없으면 null)",
-    "reason": "해당 키워드가 핫하다고 판단한 이유 요약",
-    "confidence_score": 1~5,
-    "co_keywords": ["함께 언급된 다른 키워드들"]
-  }
-]`;
+# 추출 대상
+1. 완전 신규 메뉴/디저트: "처음 봤다", "이거 뭐야" 반응 동반
+2. 떠오르는 매장: 최근 2~3일 내 웨이팅 급증, "요즘 줄 선다" 표현
+3. 해외 직수입 트렌드: 한국 미상륙 해외 F&B의 첫 언급
+4. 새로운 식문화 현상: 기존에 없던 소비 패턴
+
+# 신선도 기준
+- 5: "처음 보는데?" 반응 다수. 대중 인지도 거의 없음
+- 4: 얼리어답터 사이에서 막 퍼지기 시작
+- 3: 인플루언서 언급 시작 단계
+- 2 이하: 추출하지 마라
+
+# 출력
+JSON 배열만 출력. confidence_score 3 이상만. 없으면 [].
+[{"keyword":"","category":"디저트/메뉴/매장명(지역)/식문화현상","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"원문 인용"}]`;
+}
+
+function buildValidatorPrompt(today, newsHeadlines) {
+  return `너는 F&B 스타트업의 PM이자, 10년차 서비스 기획자와 퍼포먼스 마케터이다.
+
+오늘 날짜: ${today}
+트렌드 판단 기준: 오늘 기준 2~3일 이내 신선도. 1주일 전도 늦을 수 있다.
+
+# 미션
+1차 AI가 추출한 트렌드 후보를 검증하라. 가짜, 구식, 억지 트렌드를 걸러내라.
+
+# 오늘의 실시간 뉴스 헤드라인 (Google News 자동 수집)
+아래는 오늘 수집된 실제 F&B 관련 뉴스이다. 이것을 교차 검증 레퍼런스로 활용하라.
+${newsHeadlines}
+
+# 탈락 기준 (하나라도 해당 시 즉시 제거)
+1. 너의 학습 데이터에서 "이미 유행했다", "피크 지났다"고 확인되는 아이템이나 그 변형
+2. 매년 반복 계절 음식 (콩국수, 팥빙수, 호떡, 냉면 등)
+3. 일반 음식 카테고리명 (떡볶이, 크레페, 라떼 등)
+4. 이미 뉴스에서 대대적 보도된 메인스트림 아이템
+
+# 통과 기준
+1. "이미 유행한 것"이 아닌 새로운 키워드 — 위 탈락 기준에 해당하지 않으면 일단 통과
+2. 복수 계정/게시글에서 독립적으로 언급됨 (데이터 내에서 2개 이상 출처)
+3. 구체적인 매장명/메뉴명/현상명이 있음 (추상적 카테고리가 아님)
+
+중요: 마이크로 트렌드는 아직 뉴스나 검색엔진에 안 잡히는 게 정상이다. "들어본 적 없다"는 것이 탈락 사유가 아니다. 오히려 들어본 적 없는데 복수 게시글에서 언급되고 있다면 그것이 진짜 마이크로 트렌드 시그널이다.
+
+# 출력
+통과한 것만 JSON 배열. "validation_note" 추가. 없으면 [].`;
+}
 
 const MAX_CHAR_PER_BATCH = 6000;
 const BATCH_SIZE = 8;
 const MAX_RETRIES = 3;
 
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash-lite",
+];
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGemini(textChunk, retryCount = 0) {
-  const prompt = SYSTEM_PROMPT + "\n\n# 분석할 데이터\n" + textChunk;
+async function callGemini(textChunk) {
+  const intel = await getTrendIntel();
+  const sysPrompt = buildSystemPrompt(intel.date);
+  const prompt = sysPrompt + "\n\n# 분석할 데이터\n" + textChunk;
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
+  };
+  const axiosOpts = { headers: { "Content-Type": "application/json" }, timeout: 90000 };
 
-  try {
-    const response = await axios.post(
-      `${GEMINI_URL}?key=${config.geminiApiKey}`,
-      {
-        contents: [
-          { role: "user", parts: [{ text: prompt }] },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.2,
-        },
-      },
-      {
-        headers: { "Content-Type": "application/json" },
-        timeout: 60000,
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const url = `${GEMINI_BASE}/${model}:generateContent?key=${config.geminiApiKey}`;
+        const response = await axios.post(url, body, axiosOpts);
+        const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+        if (model !== GEMINI_MODELS[0]) console.log(`[extractor] ${model} 사용`);
+        return JSON.parse(text);
+      } catch (err) {
+        const status = err.response?.status;
+        const isRateLimit = status === 429;
+        const isOverloaded = status === 503;
+        if (isOverloaded && attempt === 0) break; // try next model immediately
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = isRateLimit ? 60000 : Math.pow(2, attempt) * 2000;
+          console.warn(`[extractor] ${model} 실패 (${status}, 시도 ${attempt + 1}/${MAX_RETRIES}), ${delay / 1000}초 후 재시도...`);
+          await sleep(delay);
+        }
       }
-    );
-
-    const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-    return JSON.parse(text);
-  } catch (err) {
-    if (retryCount < MAX_RETRIES) {
-      const isRateLimit = err.response?.status === 429;
-      const delay = isRateLimit ? 60000 : Math.pow(2, retryCount) * 1000;
-      console.warn(
-        `[extractor] API 호출 실패 (시도 ${retryCount + 1}/${MAX_RETRIES}), ${delay / 1000}초 후 재시도...`,
-        err.message
-      );
-      await sleep(delay);
-      return callGemini(textChunk, retryCount + 1);
     }
-    console.error("[extractor] API 호출 최대 재시도 초과:", err.message);
-    return [];
+    console.warn(`[extractor] ${model} 실패, 다음 모델 시도...`);
   }
+  console.error("[extractor] 모든 모델 실패");
+  return [];
 }
 
 function buildTextBlock(posts) {
@@ -197,7 +246,38 @@ export function mergeSimilarKeywords(keywords) {
   });
 }
 
+async function validateKeywords(keywords, originalText) {
+  if (!keywords.length) return [];
+
+  const intel = await getTrendIntel();
+  const valPrompt = buildValidatorPrompt(intel.date, intel.headlines);
+  const prompt = valPrompt +
+    "\n\n# 1차 추출 결과\n" + JSON.stringify(keywords, null, 2) +
+    "\n\n# 원본 텍스트 (참고용)\n" + originalText.slice(0, 3000);
+
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
+  };
+  const axiosOpts = { headers: { "Content-Type": "application/json" }, timeout: 90000 };
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `${GEMINI_BASE}/${model}:generateContent?key=${config.geminiApiKey}`;
+      const response = await axios.post(url, body, axiosOpts);
+      const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+      const validated = JSON.parse(text);
+      return Array.isArray(validated) ? validated : [];
+    } catch (err) {
+      console.warn(`[validator] ${model} 실패, 다음 모델 시도...`);
+    }
+  }
+  console.warn("[validator] 모든 모델 실패, 1차 결과 그대로 반환");
+  return keywords;
+}
+
 export async function processBatch(posts) {
+  resetTrendIntel();
   const batches = [];
   for (let i = 0; i < posts.length; i += BATCH_SIZE) {
     batches.push(posts.slice(i, i + BATCH_SIZE));
@@ -205,19 +285,28 @@ export async function processBatch(posts) {
 
   const total = batches.length;
   const allKeywords = [];
+  const allText = [];
 
   for (let i = 0; i < batches.length; i++) {
-    console.log(`[extractor] Gemini API 호출 (${i + 1}/${total})...`);
+    console.log(`[extractor] 1차 추출: Gemini API 호출 (${i + 1}/${total})...`);
     const keywords = await extractKeywords(batches[i]);
     allKeywords.push(...keywords);
+    allText.push(...batches[i].map(p => p.caption || ''));
 
-    // 2-second delay between calls to respect free tier rate limit (15 RPM)
-    if (i < batches.length - 1) {
-      await sleep(2000);
-    }
+    if (i < batches.length - 1) await sleep(2000);
   }
 
-  return mergeSimilarKeywords(allKeywords);
+  const merged = mergeSimilarKeywords(allKeywords);
+  console.log(`[extractor] 1차 추출 완료: ${merged.length}개 후보`);
+
+  if (!merged.length) return [];
+
+  console.log(`[extractor] 2차 검증: 기획자/마케터 관점 필터링...`);
+  await sleep(2000);
+  const validated = await validateKeywords(merged, allText.join('\n'));
+  console.log(`[extractor] 2차 검증 완료: ${merged.length}개 → ${validated.length}개 통과`);
+
+  return validated;
 }
 
 export default { extractKeywords, mergeSimilarKeywords, processBatch };
