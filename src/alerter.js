@@ -6,7 +6,8 @@ import { logAlert } from './db.js';
 export function formatAlertMessage(trendData) {
   const {
     keyword, category, region, reason,
-    trendScore, burstRatio, spreadScore, acceleration, uniqueAccounts
+    trendScore, burstRatio, spreadScore, acceleration, uniqueAccounts,
+    trendLevel, levelLabel, activeDays, spanDays, sources
   } = trendData;
 
   let verdict;
@@ -23,12 +24,15 @@ export function formatAlertMessage(trendData) {
     `키워드: ${keyword}`,
     `카테고리: ${category}`,
     `지역: ${region || '전국'}`,
+    `트렌드 레벨: ${levelLabel || '⚪ 관찰 중'}`,
     '',
     '📊 트렌드 지표',
     `├ 트렌드 점수: ${trendScore} ${verdict}`,
     `├ 버스트 비율: ${burstRatio}x (전주 대비)`,
     `├ 확산도: ${spreadScore} (${uniqueAccounts}개 계정)`,
-    `└ 가속도: ${acceleration}x`,
+    `├ 가속도: ${acceleration}x`,
+    `├ 누적 일수: ${activeDays ?? 0}일 / ${spanDays ?? 0}일`,
+    `└ 수집 소스: ${sources || 'Instagram'}`,
     '',
     `💡 분석: ${reason}`,
     '',
@@ -69,14 +73,15 @@ export async function sendDailyDigest(topKeywords) {
   const rows = top10.map((kw, i) => {
     const rank = String(i + 1).padStart(2, ' ');
     const score = String(kw.trendScore ?? kw.score ?? 0).padStart(5, ' ');
-    return `${rank}. ${kw.keyword.padEnd(15)} ${score}점  ${kw.category || ''}`;
+    const level = (kw.levelLabel || kw.trendLevel || '⚪').padEnd(4);
+    return `${rank}. ${kw.keyword.padEnd(15)} ${score}점  ${level}  ${kw.category || ''}`;
   });
 
   const message = [
     `📋 일일 트렌드 리포트 (${date})`,
     '',
-    '순위  키워드              점수   카테고리',
-    '─'.repeat(45),
+    '순위  키워드              점수   레벨   카테고리',
+    '─'.repeat(50),
     ...rows,
     '',
     `총 ${topKeywords.length}개 트렌드 감지됨`

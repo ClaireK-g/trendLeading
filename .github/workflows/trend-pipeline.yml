@@ -2,10 +2,8 @@ name: "\U0001F50D F&B Trend Pipeline"
 
 on:
   schedule:
-    # 매일 오전 8시 KST (UTC 23:00 전날)
-    - cron: "0 23 * * *"
-    # 매일 오후 5시 KST (UTC 08:00)
-    - cron: "0 8 * * *"
+    # 매일 오전 5시 KST (UTC 20:00 전날)
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
 jobs:
@@ -15,6 +13,8 @@ jobs:
 
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
