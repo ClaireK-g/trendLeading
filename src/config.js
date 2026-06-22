@@ -19,7 +19,7 @@ export default {
     hashtagsToTrack: ['맛집', '디저트맛집', '서울맛집', '핫플', '성수맛집', '광화문맛집', '카페추천'],
   },
   llm: {
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     maxRetries: 3,
     batchSize: 8,
     rateLimitDelay: 4000,
