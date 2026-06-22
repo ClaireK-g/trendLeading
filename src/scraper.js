@@ -238,10 +238,26 @@ function getDateStr(daysAgo) {
   return d.toISOString().slice(0, 10);
 }
 
+// F&B 관련성 필터 — 광고/부동산/여행 노이즈 제거용
+const FB_ANCHORS = [
+  '맛집', '디저트', '카페', '베이커리', '빵', '메뉴', '먹', '음식', '식당',
+  '핫플', '웨이팅', '오픈런', '브런치', '디저트', '간식', '신상', '팝업',
+  '커피', '음료', '쿠키', '케이크', '떡', '아이스크림', '도넛', '버거', '면',
+];
+const FB_NOISE = ['분양', '아파트', '부동산', '오피스텔', '청약', '대출', '보험', '주식', '코인'];
+
+function isFoodRelevant(text) {
+  if (!text) return false;
+  if (FB_NOISE.some((n) => text.includes(n)) && !FB_ANCHORS.some((a) => text.includes(a))) {
+    return false;
+  }
+  return FB_ANCHORS.some((a) => text.includes(a));
+}
+
 export async function scrapeNaverDataLab() {
-  const { clientId, clientSecret } = config.naver || {};
+  const { clientId, clientSecret } = config.naverDatalab || {};
   if (!clientId || !clientSecret) {
-    console.warn('[scraper] NAVER_CLIENT_ID/SECRET 미설정 → 네이버 데이터랩 스킵');
+    console.warn('[scraper] NAVER_DATALAB_CLIENT_ID/SECRET 미설정 → 네이버 데이터랩 스킵');
     return { posts: [], risingKeywords: [] };
   }
 
@@ -321,16 +337,26 @@ export async function scrapeNaverDataLab() {
   return { posts: allPosts, risingKeywords };
 }
 
-export async function scrapeNaverBlog() {
-  const { clientId, clientSecret } = config.naver || {};
+// 더 구체적인 F&B 발굴 쿼리 (광범위 쿼리 → 노이즈 줄이기)
+const NAVER_DISCOVERY_QUERIES = [
+  '신상 디저트 줄서는',
+  '요즘 뜨는 카페 신메뉴',
+  '오픈런 맛집 웨이팅',
+  '인스타 핫플 디저트',
+  '신상 베이커리 시그니처',
+];
+
+// 네이버 검색 API 공통 (블로그/뉴스 동일 키)
+async function searchNaver(endpoint, sourceTag) {
+  const { clientId, clientSecret } = config.naverSearch || {};
   if (!clientId || !clientSecret) return [];
 
-  const queries = ['맛집 트렌드 2026', '디저트 핫플 웨이팅', 'SNS 맛집 신상'];
   const allPosts = [];
+  let dropped = 0;
 
-  for (const query of queries) {
+  for (const query of NAVER_DISCOVERY_QUERIES) {
     try {
-      const res = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
+      const res = await axios.get(`https://openapi.naver.com/v1/search/${endpoint}.json`, {
         params: { query, display: 10, sort: 'date' },
         headers: {
           'X-Naver-Client-Id': clientId,
@@ -340,22 +366,35 @@ export async function scrapeNaverBlog() {
       });
 
       for (const item of res.data?.items || []) {
-        const text = item.title.replace(/<[^>]+>/g, '') + ' ' + item.description.replace(/<[^>]+>/g, '');
+        const text = (item.title + ' ' + (item.description || '')).replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').trim();
+        if (!isFoodRelevant(text)) {
+          dropped++;
+          continue;
+        }
         allPosts.push({
-          account: 'naver_blog',
+          account: sourceTag,
           caption: text,
           sourceUrl: item.link,
           collectedAt: new Date().toISOString(),
-          source: 'naver_blog',
+          source: sourceTag,
         });
       }
       await randomDelay(300, 800);
     } catch (err) {
-      console.warn(`[scraper] 네이버 블로그 검색 실패 (${query}): ${err.message}`);
+      console.warn(`[scraper] 네이버 ${endpoint} 검색 실패 (${query}): ${err.message}`);
     }
   }
 
+  if (dropped) console.log(`[scraper] ${sourceTag}: 노이즈 ${dropped}건 필터링`);
   return allPosts;
+}
+
+export async function scrapeNaverBlog() {
+  return searchNaver('blog', 'naver_blog');
+}
+
+export async function scrapeNaverNews() {
+  return searchNaver('news', 'naver_news');
 }
 
 // ---------------------------------------------------------------------------
@@ -424,51 +463,72 @@ export async function scrapeXTrends() {
 // 일일 수집 오케스트레이터
 // ---------------------------------------------------------------------------
 
-export async function collectDaily() {
-  const usernames = await loadSeedAccounts();
-  console.log(`[scraper] ${usernames.length}개 시드 계정 로드 완료`);
+// Instagram 수집 — 격리된 옵션 모듈. INSTAGRAM_ENABLED=true 일 때만 동작.
+// 죽어도(403 등) 메인 파이프라인에 영향 없도록 try/catch로 완전 격리.
+async function collectInstagram() {
+  if (!config.instagram?.enabled) {
+    console.log('[scraper] Instagram 비활성화 (INSTAGRAM_ENABLED=false) — 스킵');
+    return [];
+  }
 
+  const posts = [];
+  try {
+    const usernames = await loadSeedAccounts();
+    console.log(`[scraper] Instagram: ${usernames.length}개 시드 계정 수집 시도`);
+
+    for (const username of usernames) {
+      try {
+        posts.push(...await scrapeAccount(username));
+      } catch (err) {
+        console.warn(`[scraper] IG ${username} 실패: ${err.message}`);
+      }
+      await randomDelay();
+    }
+
+    const hashtags = ['맛집', '디저트맛집', '서울맛집', '핫플', '성수맛집', '광화문맛집'];
+    for (const tag of hashtags) {
+      try {
+        posts.push(...await scrapeHashtag(tag));
+      } catch (err) {
+        console.warn(`[scraper] IG #${tag} 실패: ${err.message}`);
+      }
+      await randomDelay();
+    }
+  } catch (err) {
+    console.warn(`[scraper] Instagram 모듈 전체 실패 (무시): ${err.message}`);
+  }
+
+  console.log(`[scraper] Instagram: ${posts.length}건 수집`);
+  return posts;
+}
+
+export async function collectDaily() {
   const allPosts = [];
 
-  // 계정별 수집
-  for (const username of usernames) {
-    try {
-      const posts = await scrapeAccount(username);
-      allPosts.push(...posts);
-      console.log(`[scraper] ${username}: ${posts.length}개 포스트 수집`);
-    } catch (err) {
-      console.warn(`[scraper] ${username} 수집 실패: ${err.message}`);
-    }
-    await randomDelay();
-  }
-
-  // 해시태그 수집
-  const hashtags = ['맛집', '디저트맛집', '서울맛집', '핫플', '성수맛집', '광화문맛집'];
-  for (const tag of hashtags) {
-    try {
-      const posts = await scrapeHashtag(tag);
-      allPosts.push(...posts);
-      console.log(`[scraper] #${tag}: ${posts.length}개 포스트 수집`);
-    } catch (err) {
-      console.warn(`[scraper] #${tag} 수집 실패: ${err.message}`);
-    }
-    await randomDelay();
-  }
-
-  // 네이버 트렌드 수집
-  console.log('[scraper] 네이버/뉴스 트렌드 수집 중...');
-  console.log('[scraper] 네이버 데이터랩 + 블로그 수집 중...');
-  const { posts: datalabPosts } = await scrapeNaverDataLab();
+  // ── 주력(主力): 네이버 데이터랩 + 블로그 + 뉴스 ───────────────────
+  console.log('[scraper] [주력] 네이버 데이터랩/블로그/뉴스 수집 중...');
+  const { posts: datalabPosts, risingKeywords } = await scrapeNaverDataLab();
   allPosts.push(...datalabPosts);
   const blogPosts = await scrapeNaverBlog();
   allPosts.push(...blogPosts);
-  console.log(`[scraper] 네이버: 데이터랩 ${datalabPosts.length}건 + 블로그 ${blogPosts.length}건`);
+  const newsPosts = await scrapeNaverNews();
+  allPosts.push(...newsPosts);
+  console.log(`[scraper] 네이버: 데이터랩 ${datalabPosts.length} + 블로그 ${blogPosts.length} + 뉴스 ${newsPosts.length}건`);
 
-  // X(트위터) 트렌드 수집
-  console.log('[scraper] X(트위터) 트렌드 수집 중...');
-  const xPosts = await scrapeXTrends();
+  // ── 보조: X(트위터/Nitter) — best-effort ─────────────────────────
+  console.log('[scraper] [보조] X(Nitter) 수집 중...');
+  let xPosts = [];
+  try {
+    xPosts = await scrapeXTrends();
+  } catch (err) {
+    console.warn(`[scraper] X 수집 실패 (무시): ${err.message}`);
+  }
   allPosts.push(...xPosts);
-  console.log('[scraper] X: ' + xPosts.length + '개 수집');
+  console.log(`[scraper] X: ${xPosts.length}건 수집`);
+
+  // ── 옵션: Instagram (기본 off, 완전 격리) ────────────────────────
+  const igPosts = await collectInstagram();
+  allPosts.push(...igPosts);
 
   // sourceUrl 기준 중복 제거
   const seen = new Set();
@@ -478,6 +538,8 @@ export async function collectDaily() {
     return true;
   });
 
-  console.log(`[scraper] 총 ${deduplicated.length}개 포스트 수집 완료 (중복 제거 후)`);
+  console.log(`[scraper] 총 ${deduplicated.length}건 수집 완료 (중복 제거 후)`);
+  // risingKeywords를 함께 노출 — 데이터랩 검증 신호
+  deduplicated.risingKeywords = risingKeywords;
   return deduplicated;
 }
