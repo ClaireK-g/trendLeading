@@ -1,8 +1,13 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { mkdirSync } from 'fs';
 
-const DB_PATH = '/Users/producer/dev/trendLeading/data/trend.db';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_PATH = path.join(__dirname, '..', 'data', 'trend.db');
+
+mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 let db;
 
