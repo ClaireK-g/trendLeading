@@ -1,0 +1,49 @@
+name: "\U0001F50D F&B Trend Pipeline"
+
+on:
+  schedule:
+    # 매일 오전 8시 KST (UTC 23:00 전날)
+    - cron: "0 23 * * *"
+    # 매일 오후 5시 KST (UTC 08:00)
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore previous DB
+        uses: actions/download-artifact@v4
+        with:
+          name: trend-db
+          path: data/
+        continue-on-error: true
+
+      - name: Run pipeline
+        run: node index.js run
+
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trend-db
+          path: data/trend.db
+          retention-days: 90
+          overwrite: true

@@ -1,0 +1,20 @@
+{
+  "_comment": "실제 운영 시 아래 계정명을 수집 대상 실제 인스타그램 계정으로 교체하세요.",
+  "accounts": [
+    "seoul_dessert_diary",
+    "matzzip_hunter",
+    "sweetseoul_official",
+    "gangnam_brunch_log",
+    "cafe_hopping_kr",
+    "hanok_kitchen_story",
+    "busan_foodie_jin",
+    "jeju_matzzang",
+    "hongdae_eatmap",
+    "yeonnam_bapsang",
+    "itaewon_taste_note",
+    "seongsu_coffee_walk",
+    "jongno_gourmet_pick",
+    "sinsa_plate_daily",
+    "mapo_muk_diary"
+  ]
+}

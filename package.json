@@ -1,0 +1,19 @@
+{
+  "name": "trend-leading",
+  "version": "1.0.0",
+  "description": "Micro-trend detection pipeline",
+  "type": "module",
+  "main": "src/pipeline.js",
+  "scripts": {
+    "start": "node index.js run",
+    "test": "node index.js test",
+    "cron": "node index.js cron"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "better-sqlite3": "^11.0.0",
+    "cheerio": "^1.2.0",
+    "dotenv": "^16.4.0",
+    "node-cron": "^3.0.0"
+  }
+}
