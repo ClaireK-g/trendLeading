@@ -1,6 +1,10 @@
 import fs from 'node:fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
-const BLACKLIST_PATH = '/Users/producer/dev/trendLeading/data/blacklist.json';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const BLACKLIST_PATH = path.join(__dirname, '..', 'data', 'blacklist.json');
 
 let blacklistSet = null;
 
