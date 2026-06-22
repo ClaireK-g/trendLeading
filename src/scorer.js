@@ -1,6 +1,56 @@
 // Burst detection and trend scoring
 import { getAllRecentKeywords, getKeywordStats } from './db.js';
 
+const LEVEL_LABELS = {
+  L1: '🟢 신규 트렌드 (1주+)',
+  L2: '🟡 성장 트렌드 (2주+)',
+  L3: '🟠 확산 트렌드 (3주+)',
+  L4: '🔴 메인스트림 진입 (4주+)',
+};
+
+/**
+ * Classify a keyword into a trend level based on how long it has been active.
+ * @param {string} keyword
+ * @returns {Promise<{level: string|null, activeDays: number, spanDays: number, label: string}>}
+ */
+export async function classifyTrendLevel(keyword) {
+  const stats = await getKeywordStats(keyword, 35);
+
+  // Count distinct dates with mention_count > 0
+  const activeDays = stats.filter(d => (d.mentions || d.mention_count || 0) > 0).length;
+
+  // Calculate span from first seen date to today
+  let spanDays = 0;
+  if (stats.length > 0) {
+    const dates = stats
+      .map(d => d.date ? new Date(d.date) : null)
+      .filter(Boolean);
+    if (dates.length > 0) {
+      const earliest = new Date(Math.min(...dates));
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      earliest.setHours(0, 0, 0, 0);
+      spanDays = Math.round((today - earliest) / (1000 * 60 * 60 * 24));
+    }
+  }
+
+  let level = null;
+  if (activeDays >= 10 && spanDays >= 28) {
+    level = 'L4';
+  } else if (activeDays >= 7 && spanDays >= 21) {
+    level = 'L3';
+  } else if (activeDays >= 5 && spanDays >= 14) {
+    level = 'L2';
+  } else if (activeDays >= 3 && spanDays >= 7) {
+    level = 'L1';
+  }
+  // activeDays >= 1 && span < 7 => null (too new)
+
+  const label = level ? LEVEL_LABELS[level] : '⚪ 관찰 중';
+
+  return { level, activeDays, spanDays, label };
+}
+
 /**
  * Calculate a trend score for a single keyword using burst detection signals.
  * @param {string} keyword
@@ -59,6 +109,9 @@ export async function calculateTrendScore(keyword) {
     verdict = '📊 관찰';
   }
 
+  // Trend level classification
+  const { level: trendLevel, activeDays, spanDays, label: levelLabel } = await classifyTrendLevel(keyword);
+
   return {
     keyword,
     trendScore,
@@ -67,6 +120,10 @@ export async function calculateTrendScore(keyword) {
     acceleration,
     coOccurrenceRichness,
     verdict,
+    trendLevel,
+    activeDays,
+    spanDays,
+    levelLabel,
   };
 }
 

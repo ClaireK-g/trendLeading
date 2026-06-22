@@ -23,7 +23,7 @@ const USAGE = `
   node index.js digest                 일일 다이제스트 전송
   node index.js blacklist add <키워드>  블랙리스트에 키워드 추가
   node index.js blacklist list         블랙리스트 조회
-  node index.js cron                   크론 스케줄러 시작 (09:00, 18:00 KST)
+  node index.js cron                   크론 스케줄러 시작 (05:00 KST)
   node index.js test                   테스트 (API 키 없이도 목업 데이터로 동작)
 `;
 
@@ -112,27 +112,17 @@ async function main() {
     }
 
     case 'cron': {
-      console.log('[cron] 스케줄러 시작 - 매일 09:00, 18:00 (KST) 실행');
+      console.log('[cron] 스케줄러 시작 - 매일 05:00 (KST) 실행');
       console.log('[cron] 종료하려면 Ctrl+C를 누르세요.\n');
 
-      // 09:00 KST = 00:00 UTC, 18:00 KST = 09:00 UTC
-      cron.schedule('0 0 * * *', async () => {
-        console.log(`\n[cron] ${new Date().toISOString()} 오전 파이프라인 시작`);
+      // 05:00 KST
+      cron.schedule('0 5 * * *', async () => {
+        console.log(`\n[cron] ${new Date().toISOString()} 파이프라인 시작`);
         try {
           const result = await runPipeline();
-          console.log('[cron] 오전 파이프라인 완료:', result);
+          console.log('[cron] 파이프라인 완료:', result);
         } catch (err) {
-          console.error('[cron] 오전 파이프라인 실패:', err.message);
-        }
-      }, { timezone: 'Asia/Seoul', scheduled: true });
-
-      cron.schedule('0 18 * * *', async () => {
-        console.log(`\n[cron] ${new Date().toISOString()} 오후 파이프라인 시작`);
-        try {
-          const result = await runPipeline();
-          console.log('[cron] 오후 파이프라인 완료:', result);
-        } catch (err) {
-          console.error('[cron] 오후 파이프라인 실패:', err.message);
+          console.error('[cron] 파이프라인 실패:', err.message);
         }
       }, { timezone: 'Asia/Seoul', scheduled: true });
 
