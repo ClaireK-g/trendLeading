@@ -1,4 +1,4 @@
-name: "\U0001F50D F&B Trend Pipeline"
+name: "🔍 F&B Trend Pipeline"
 
 on:
   schedule:
@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm ci
@@ -39,13 +39,25 @@ jobs:
           path: data/
         continue-on-error: true
 
+      - name: Ensure data directory
+        run: mkdir -p data
+
       - name: Run pipeline
+        id: pipeline
         run: node index.js run
 
       - name: Upload DB artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trend-db
           path: data/trend.db
           retention-days: 90
           overwrite: true
+
+      - name: Alert on failure
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="⚠️ trendLeading 파이프라인 실패%0A%0A시간: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')%0A로그: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}%0A%0A확인 필요합니다."

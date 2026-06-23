@@ -1,0 +1,23 @@
+name: "💓 Keepalive"
+
+# GitHub Actions는 60일간 레포 활동이 없으면 scheduled workflow를 비활성화함.
+# 이 워크플로우가 매주 빈 커밋을 push하여 레포를 active 상태로 유지.
+on:
+  schedule:
+    - cron: "0 0 * * 1"  # 매주 월요일 UTC 00:00 (KST 09:00)
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Keepalive commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive [skip ci]"
+          git push
