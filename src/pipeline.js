@@ -90,11 +90,26 @@ export async function runPipeline() {
   console.log('[pipeline] 버스트 감지 및 알림 처리 중...');
   const { bursts, alertsSent } = await scoreAndAlert();
 
+  // 4. 일일 리포트 — 키워드가 1개라도 추출되면 무조건 발송
+  let digestSent = false;
+  if (keywords.length > 0) {
+    console.log('[pipeline] 일일 트렌드 리포트 발송 중...');
+    try {
+      const ranked = await rankAllKeywords();
+      await sendDailyDigest(ranked.length ? ranked : keywords);
+      digestSent = true;
+      console.log('[pipeline] 일일 리포트 발송 완료');
+    } catch (err) {
+      console.error('[pipeline] 일일 리포트 발송 실패:', err.message);
+    }
+  }
+
   const result = {
     postsCollected: posts.length,
     keywordsExtracted: keywords.length,
     burstsDetected: bursts.length,
     alertsSent,
+    digestSent,
   };
 
   console.log(`[pipeline] ${timestamp()} 파이프라인 완료:`, JSON.stringify(result));
