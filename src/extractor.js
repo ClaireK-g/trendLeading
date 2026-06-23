@@ -114,7 +114,7 @@ async function callGemini(textChunk) {
         const isOverloaded = status === 503;
         if (isOverloaded && attempt === 0) break; // try next model immediately
         if (attempt < MAX_RETRIES - 1) {
-          const delay = isRateLimit ? 60000 : Math.pow(2, attempt) * 2000;
+          const delay = isRateLimit ? 15000 : Math.pow(2, attempt) * 2000;
           console.warn(`[extractor] ${model} 실패 (${status}, 시도 ${attempt + 1}/${MAX_RETRIES}), ${delay / 1000}초 후 재시도...`);
           await sleep(delay);
         }
