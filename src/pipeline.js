@@ -4,6 +4,7 @@ import * as scraper from './scraper.js';
 import * as extractor from './extractor.js';
 import { detectBursts, shouldAlert, rankAllKeywords } from './scorer.js';
 import { sendAlert, sendDailyDigest } from './alerter.js';
+import { runProbe, verifyWithDatalab } from './probe.js';
 import config from './config.js';
 
 function timestamp() {
@@ -76,27 +77,59 @@ export async function runPipeline() {
   console.log(`[pipeline] ${timestamp()} 파이프라인 시작`);
   initDB();
 
-  // 1. Collect posts via Apify
-  console.log('[pipeline] 게시물 수집 중...');
+  // ── STEP 1: 데이터랩 탐침 (선행 지표) ─────────────────────────
+  console.log('[pipeline] [STEP 1] 데이터랩 탐침 — 검색량 급등 키워드 스캔...');
+  let probeSpikes = [];
+  try {
+    probeSpikes = await runProbe();
+  } catch (err) {
+    console.warn('[pipeline] 탐침 실패 (무시):', err.message);
+  }
+
+  // 탐침에서 급등한 키워드를 DB에 기록 (트렌드 레벨 누적용)
+  const today = new Date().toISOString().slice(0, 10);
+  for (const spike of probeSpikes) {
+    upsertDailyStats(spike.keyword, today, 'datalab_probe', []);
+  }
+
+  // ── STEP 2: 네이버 블로그/뉴스 수집 (맥락 보강) ────────────────
+  console.log('[pipeline] [STEP 2] 네이버 블로그/뉴스/데이터랩 수집...');
   const posts = await scraper.collectDaily();
   console.log(`[pipeline] ${posts.length}개 게시물 수집 완료`);
 
-  // 2. Ingest and extract
-  console.log('[pipeline] 키워드 추출 중...');
+  // ── STEP 3: LLM 키워드 추출 ──────────────────────────────────
+  console.log('[pipeline] [STEP 3] LLM 키워드 추출...');
   const keywords = await ingestAndExtract(posts);
   console.log(`[pipeline] ${keywords.length}개 키워드 추출 완료`);
 
-  // 3. Score and alert
-  console.log('[pipeline] 버스트 감지 및 알림 처리 중...');
+  // ── STEP 4: 데이터랩 역검증 — 추출된 키워드의 검색량 확인 ─────
+  let verifiedKeywords = keywords;
+  if (keywords.length > 0) {
+    console.log('[pipeline] [STEP 4] 추출 키워드 데이터랩 역검증...');
+    try {
+      verifiedKeywords = await verifyWithDatalab(keywords);
+    } catch (err) {
+      console.warn('[pipeline] 역검증 실패 (무시):', err.message);
+    }
+  }
+
+  // ── STEP 5: 스코어링 + 알림 ──────────────────────────────────
+  console.log('[pipeline] [STEP 5] 스코어링 및 알림...');
   const { bursts, alertsSent } = await scoreAndAlert();
 
-  // 4. 일일 리포트 — 키워드가 1개라도 추출되면 무조건 발송
+  // ── STEP 6: 일일 리포트 — 탐침 + 추출 결과 합산 ──────────────
   let digestSent = false;
-  if (keywords.length > 0) {
-    console.log('[pipeline] 일일 트렌드 리포트 발송 중...');
+  const allFindings = [...probeSpikes.slice(0, 10), ...verifiedKeywords];
+  if (allFindings.length > 0) {
+    console.log('[pipeline] [STEP 6] 일일 트렌드 리포트 발송...');
     try {
       const ranked = await rankAllKeywords();
-      await sendDailyDigest(ranked.length ? ranked : keywords);
+      const digestData = ranked.length ? ranked : verifiedKeywords;
+      // 탐침 급등 키워드도 digest에 포함
+      if (probeSpikes.length) {
+        digestData.probeSpikes = probeSpikes.slice(0, 10);
+      }
+      await sendDailyDigest(digestData);
       digestSent = true;
       console.log('[pipeline] 일일 리포트 발송 완료');
     } catch (err) {
@@ -107,6 +140,7 @@ export async function runPipeline() {
   const result = {
     postsCollected: posts.length,
     keywordsExtracted: keywords.length,
+    probeSpikes: probeSpikes.length,
     burstsDetected: bursts.length,
     alertsSent,
     digestSent,

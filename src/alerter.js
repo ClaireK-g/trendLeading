@@ -68,24 +68,51 @@ export async function sendAlert(trendData) {
 
 export async function sendDailyDigest(topKeywords) {
   const date = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const time = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
   const top10 = topKeywords.slice(0, 10);
 
   const rows = top10.map((kw, i) => {
     const rank = String(i + 1).padStart(2, ' ');
-    const score = String(kw.trendScore ?? kw.score ?? 0).padStart(5, ' ');
-    const level = (kw.levelLabel || kw.trendLevel || '⚪').padEnd(4);
-    return `${rank}. ${kw.keyword.padEnd(15)} ${score}점  ${level}  ${kw.category || ''}`;
+    const name = (kw.keyword || '').padEnd(12);
+    const score = kw.trendScore != null ? String(kw.trendScore.toFixed?.(1) ?? kw.trendScore).padStart(5) : '  -  ';
+    const level = kw.levelLabel || kw.trendLevel || '⚪';
+    const trend = kw.searchTrend || '';
+    return `${rank}. ${name} ${score}  ${level}  ${trend}`;
   });
 
-  const message = [
-    `📋 일일 트렌드 리포트 (${date})`,
-    '',
-    '순위  키워드              점수   레벨   카테고리',
-    '─'.repeat(50),
-    ...rows,
-    '',
-    `총 ${topKeywords.length}개 트렌드 감지됨`
-  ].join('\n');
+  // 탐침 급등 섹션
+  const probeSpikes = topKeywords.probeSpikes || [];
+  const probeRows = probeSpikes.slice(0, 8).map(s =>
+    `  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg}→${s.recentAvg})`
+  );
+
+  const sections = [
+    `🔍 trendLeading 일일 리포트`,
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    `📅 ${date} ${time}`,
+  ];
+
+  if (probeRows.length) {
+    sections.push(
+      '',
+      '■ 데이터랩 검색량 급등 (선행 시그널)',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      ...probeRows,
+    );
+  }
+
+  if (rows.length) {
+    sections.push(
+      '',
+      '■ LLM 추출 트렌드 키워드',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      ...rows,
+    );
+  }
+
+  sections.push('', `총 ${top10.length + probeSpikes.length}개 시그널 감지`);
+
+  const message = sections.join('\n');
 
   const channels = [];
 
