@@ -1,5 +1,5 @@
 // Main pipeline orchestrator
-import { initDB, insertRawPost, insertExtractedKeywords, upsertDailyStats, logAlert } from './db.js';
+import { initDB, insertRawPost, insertExtractedKeywords, upsertDailyStats, upsertDailyCollectionStats, logAlert } from './db.js';
 import * as scraper from './scraper.js';
 import * as extractor from './extractor.js';
 import { detectBursts, shouldAlert, rankAllKeywords } from './scorer.js';
@@ -27,6 +27,7 @@ async function ingestAndExtract(posts) {
       comments_text: post.commentsText ?? post.comments_text ?? null,
       collected_at: post.collectedAt ?? post.collected_at ?? new Date().toISOString(),
       source_url: post.sourceUrl ?? post.source_url ?? null,
+      source: post.source ?? 'unknown',
     });
     postIds.push(id);
   }
@@ -136,6 +137,27 @@ export async function runPipeline() {
       console.error('[pipeline] 일일 리포트 발송 실패:', err.message);
     }
   }
+
+  // ── 일일 수집 통계 저장 (모수 추이 관찰용) ──────────────────────
+  const sourceCounts = {};
+  for (const post of posts) {
+    const src = post.source || 'unknown';
+    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+  }
+  upsertDailyCollectionStats({
+    total_posts: posts.length,
+    naver_blog: sourceCounts.naver_blog || 0,
+    naver_news: sourceCounts.naver_news || 0,
+    naver_datalab: sourceCounts.naver_datalab || 0,
+    hackernews: sourceCounts.hackernews || 0,
+    producthunt: sourceCounts.producthunt || 0,
+    x_twitter: sourceCounts.x || 0,
+    instagram: sourceCounts.instagram || 0,
+    keywords_extracted: keywords.length,
+    probe_spikes: probeSpikes.length,
+    digest_sent: digestSent ? 1 : 0,
+  });
+  console.log(`[pipeline] 일일 수집 통계 저장 완료:`, JSON.stringify(sourceCounts));
 
   const result = {
     postsCollected: posts.length,
