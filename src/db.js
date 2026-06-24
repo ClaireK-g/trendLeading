@@ -33,7 +33,24 @@ export function initDB() {
       caption TEXT,
       comments_text TEXT,
       collected_at TEXT NOT NULL,
-      source_url TEXT
+      source_url TEXT,
+      source TEXT DEFAULT 'unknown',
+      collect_date TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_collection_stats (
+      date TEXT PRIMARY KEY,
+      total_posts INTEGER DEFAULT 0,
+      naver_blog INTEGER DEFAULT 0,
+      naver_news INTEGER DEFAULT 0,
+      naver_datalab INTEGER DEFAULT 0,
+      hackernews INTEGER DEFAULT 0,
+      producthunt INTEGER DEFAULT 0,
+      x_twitter INTEGER DEFAULT 0,
+      instagram INTEGER DEFAULT 0,
+      keywords_extracted INTEGER DEFAULT 0,
+      probe_spikes INTEGER DEFAULT 0,
+      digest_sent INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS extracted_keywords (
@@ -72,6 +89,8 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_ek_post_id ON extracted_keywords(post_id);
     CREATE INDEX IF NOT EXISTS idx_ek_keyword ON extracted_keywords(keyword);
     CREATE INDEX IF NOT EXISTS idx_alerts_keyword_at ON alerts_sent(keyword, alerted_at);
+    CREATE INDEX IF NOT EXISTS idx_rp_collect_date ON raw_posts(collect_date);
+    CREATE INDEX IF NOT EXISTS idx_rp_source ON raw_posts(source);
   `);
 
   return d;
@@ -83,8 +102,8 @@ export function initDB() {
 export function insertRawPost(post) {
   const d = getDB();
   const stmt = d.prepare(`
-    INSERT INTO raw_posts (account, caption, comments_text, collected_at, source_url)
-    VALUES (@account, @caption, @comments_text, @collected_at, @source_url)
+    INSERT INTO raw_posts (account, caption, comments_text, collected_at, source_url, source, collect_date)
+    VALUES (@account, @caption, @comments_text, @collected_at, @source_url, @source, @collect_date)
   `);
   const info = stmt.run({
     account: post.account,
@@ -92,8 +111,38 @@ export function insertRawPost(post) {
     comments_text: post.comments_text ?? null,
     collected_at: post.collected_at ?? new Date().toISOString(),
     source_url: post.source_url ?? null,
+    source: post.source ?? 'unknown',
+    collect_date: new Date().toISOString().slice(0, 10),
   });
   return info.lastInsertRowid;
+}
+
+export function upsertDailyCollectionStats(stats) {
+  const d = getDB();
+  const today = new Date().toISOString().slice(0, 10);
+  d.prepare(`
+    INSERT INTO daily_collection_stats (date, total_posts, naver_blog, naver_news, naver_datalab, hackernews, producthunt, x_twitter, instagram, keywords_extracted, probe_spikes, digest_sent)
+    VALUES (@date, @total_posts, @naver_blog, @naver_news, @naver_datalab, @hackernews, @producthunt, @x_twitter, @instagram, @keywords_extracted, @probe_spikes, @digest_sent)
+    ON CONFLICT(date) DO UPDATE SET
+      total_posts = @total_posts,
+      naver_blog = @naver_blog,
+      naver_news = @naver_news,
+      naver_datalab = @naver_datalab,
+      hackernews = @hackernews,
+      producthunt = @producthunt,
+      x_twitter = @x_twitter,
+      instagram = @instagram,
+      keywords_extracted = @keywords_extracted,
+      probe_spikes = @probe_spikes,
+      digest_sent = @digest_sent
+  `).run({ date: today, ...stats });
+}
+
+export function getDailyCollectionStats(days = 30) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return d.prepare('SELECT * FROM daily_collection_stats WHERE date >= ? ORDER BY date DESC').all(cutoff.toISOString().slice(0, 10));
 }
 
 // ---------------------------------------------------------------------------
