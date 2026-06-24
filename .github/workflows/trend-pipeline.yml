@@ -9,6 +9,8 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -35,23 +37,17 @@ jobs:
       - name: Ensure data directory
         run: mkdir -p data
 
-      - name: Restore DB from cache
-        uses: actions/cache/restore@v4
-        with:
-          path: data/trend.db
-          key: trend-db-${{ github.run_id }}
-          restore-keys: |
-            trend-db-
-
       - name: Run pipeline
         run: node index.js run
 
-      - name: Save DB to cache
+      - name: Commit DB to repo
         if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/trend.db
-          key: trend-db-${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/trend.db
+          git diff --cached --quiet || git commit -m "chore: daily DB update $(TZ=Asia/Seoul date '+%Y-%m-%d')"
+          git push
 
       - name: Alert on failure
         if: failure()
