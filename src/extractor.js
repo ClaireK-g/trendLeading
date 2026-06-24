@@ -75,8 +75,8 @@ ${newsHeadlines}
 통과한 것만 JSON 배열. "validation_note" 추가. 없으면 [].`;
 }
 
-const MAX_CHAR_PER_BATCH = 6000;
-const BATCH_SIZE = 8;
+const MAX_CHAR_PER_BATCH = 12000;
+const BATCH_SIZE = 30;
 const MAX_RETRIES = 3;
 
 const GEMINI_MODELS = [
@@ -88,6 +88,15 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let _keyIndex = 0;
+function getNextApiKey() {
+  const keys = config.geminiApiKeys || [];
+  if (!keys.length) throw new Error('GEMINI_API_KEY 미설정');
+  const key = keys[_keyIndex % keys.length];
+  _keyIndex++;
+  return key;
 }
 
 async function callGemini(textChunk) {
@@ -103,7 +112,7 @@ async function callGemini(textChunk) {
   for (const model of GEMINI_MODELS) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const url = `${GEMINI_BASE}/${model}:generateContent?key=${config.geminiApiKey}`;
+        const url = `${GEMINI_BASE}/${model}:generateContent?key=${getNextApiKey()}`;
         const response = await axios.post(url, body, axiosOpts);
         const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
         if (model !== GEMINI_MODELS[0]) console.log(`[extractor] ${model} 사용`);
@@ -263,7 +272,7 @@ async function validateKeywords(keywords, originalText) {
 
   for (const model of GEMINI_MODELS) {
     try {
-      const url = `${GEMINI_BASE}/${model}:generateContent?key=${config.geminiApiKey}`;
+      const url = `${GEMINI_BASE}/${model}:generateContent?key=${getNextApiKey()}`;
       const response = await axios.post(url, body, axiosOpts);
       const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
       const validated = JSON.parse(text);
