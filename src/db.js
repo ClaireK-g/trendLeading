@@ -93,6 +93,11 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_rp_source ON raw_posts(source);
   `);
 
+  // 기존 DB 마이그레이션 — 새 컬럼이 없으면 추가
+  const cols = d.prepare("PRAGMA table_info(raw_posts)").all().map(c => c.name);
+  if (!cols.includes('source')) d.exec("ALTER TABLE raw_posts ADD COLUMN source TEXT DEFAULT 'unknown'");
+  if (!cols.includes('collect_date')) d.exec("ALTER TABLE raw_posts ADD COLUMN collect_date TEXT");
+
   return d;
 }
 
