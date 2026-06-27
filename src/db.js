@@ -229,16 +229,35 @@ export function upsertDailyStats(keyword, date, accountName, coKeywords = []) {
 export function getKeywordStats(keyword, days = 7) {
   const d = getDB();
   const normalized = keyword.trim().toLowerCase();
-  const cutoff = new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
   cutoff.setDate(cutoff.getDate() - days);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-  return d.prepare(`
+  const rows = d.prepare(`
     SELECT keyword, date, mention_count, unique_accounts, co_keywords
     FROM keyword_daily_stats
     WHERE keyword = ? AND date >= ?
     ORDER BY date DESC
   `).all(normalized, cutoffStr);
+
+  return rows.map(r => {
+    const rowDate = new Date(r.date);
+    rowDate.setHours(0, 0, 0, 0);
+    return {
+      keyword: r.keyword,
+      date: r.date,
+      daysAgo: Math.round((today - rowDate) / (1000 * 60 * 60 * 24)),
+      mentions: r.mention_count,
+      mention_count: r.mention_count,
+      accounts: [],
+      uniqueAccounts: r.unique_accounts,
+      unique_accounts: r.unique_accounts,
+      coKeywords: JSON.parse(r.co_keywords || '[]'),
+      confidenceScore: r.mention_count > 0 ? 4 : 0,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
