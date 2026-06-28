@@ -35,15 +35,18 @@ async function ingestAndExtract(posts) {
   // Extract keywords via LLM
   const keywords = await extractor.processBatch(posts);
 
+  // Build account list from source posts for unique_accounts tracking
+  const postAccounts = posts.map(p => p.account).filter(Boolean);
+
   // Insert extracted keywords and update daily stats
   for (let i = 0; i < keywords.length; i++) {
     const kw = keywords[i];
-    // Associate with first post if we can't determine exact post
-    const postId = postIds[0] ?? null;
+    const postId = postIds[Math.min(i, postIds.length - 1)] ?? null;
     insertExtractedKeywords([kw], postId);
 
     const coKeywords = kw.co_keywords || [];
-    upsertDailyStats(kw.keyword, today, kw.account ?? '', coKeywords);
+    const account = postAccounts[i % postAccounts.length] || `source_${i}`;
+    upsertDailyStats(kw.keyword, today, account, coKeywords);
   }
 
   return keywords;
