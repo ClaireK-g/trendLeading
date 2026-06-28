@@ -11,10 +11,11 @@ export function formatAlertMessage(trendData) {
   } = trendData;
 
   let verdict;
-  if (trendScore >= 80) verdict = '🔴 매우 강함';
-  else if (trendScore >= 60) verdict = '🟠 강함';
-  else if (trendScore >= 40) verdict = '🟡 보통';
-  else verdict = '🟢 약함';
+  if (trendScore > 5) verdict = '🔴 급상승';
+  else if (trendScore > 3.5) verdict = '🟠 강함';
+  else if (trendScore > 2.5) verdict = '🟡 주목';
+  else if (trendScore > 1) verdict = '🟢 관찰';
+  else verdict = '⚪ 미약';
 
   const timestamp = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
@@ -74,10 +75,21 @@ export async function sendDailyDigest(topKeywords) {
   const rows = top10.map((kw, i) => {
     const rank = String(i + 1).padStart(2, ' ');
     const name = (kw.keyword || '').padEnd(12);
-    const score = kw.trendScore != null ? String(kw.trendScore.toFixed?.(1) ?? kw.trendScore).padStart(5) : '  -  ';
-    const level = kw.levelLabel || kw.trendLevel || '⚪';
+    const score = kw.trendScore != null ? kw.trendScore.toFixed?.(1) ?? kw.trendScore : '-';
+
+    let heat;
+    if (kw.trendScore > 5) heat = '🔴';
+    else if (kw.trendScore > 3.5) heat = '🟠';
+    else if (kw.trendScore > 2.5) heat = '🟡';
+    else if (kw.trendScore > 1) heat = '🟢';
+    else heat = '⚪';
+
+    const level = kw.levelLabel || kw.trendLevel || '';
     const trend = kw.searchTrend || '';
-    return `${rank}. ${name} ${score}  ${level}  ${trend}`;
+    const parts = [`${rank}. ${heat} ${name} ${String(score).padStart(5)}`];
+    if (level && level !== '⚪ 관찰 중') parts.push(level);
+    if (trend) parts.push(trend);
+    return parts.join('  ');
   });
 
   // 탐침 급등 섹션
@@ -110,7 +122,11 @@ export async function sendDailyDigest(topKeywords) {
     );
   }
 
-  sections.push('', `총 ${top10.length + probeSpikes.length}개 시그널 감지`);
+  sections.push(
+    '',
+    `총 ${top10.length + probeSpikes.length}개 시그널 감지`,
+    '🔴5+ 🟠3.5+ 🟡2.5+ 🟢1+ ⚪미약',
+  );
 
   const message = sections.join('\n');
 

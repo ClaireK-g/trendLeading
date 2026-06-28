@@ -76,7 +76,7 @@ export async function calculateTrendScore(keyword) {
   }
 
   // b) Spread Score — unique accounts / total mentions in last 7 days
-  const uniqueAccounts7 = new Set(last7.flatMap(d => d.accounts || [])).size;
+  const uniqueAccounts7 = last7.reduce((sum, d) => sum + (d.uniqueAccounts || 0), 0);
   const spreadScore = last7Total > 0
     ? Math.min(uniqueAccounts7 / last7Total, 1)
     : 0;
@@ -165,7 +165,7 @@ export async function shouldAlert(keyword, recentAlertsHours = 72) {
 
   // unique accounts in last 3 days
   const last3 = stats.filter(d => d.daysAgo < 3);
-  const uniqueAccounts3 = new Set(last3.flatMap(d => d.accounts || [])).size;
+  const uniqueAccounts3 = last3.reduce((sum, d) => sum + (d.uniqueAccounts || 0), 0);
 
   // last alert check
   const lastAlertedAt = stats[0]?.lastAlertedAt;
