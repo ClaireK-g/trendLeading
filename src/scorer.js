@@ -173,9 +173,9 @@ export async function shouldAlert(keyword, recentAlertsHours = 72) {
     (Date.now() - new Date(lastAlertedAt).getTime()) < recentAlertsHours * 60 * 60 * 1000;
 
   return (
-    maxConfidence >= 3 &&
-    uniqueAccounts3 >= 1 &&
-    trendScore >= 2.5 &&
+    maxConfidence >= 4 &&
+    uniqueAccounts3 >= 5 &&
+    trendScore >= 3.0 &&
     !alreadyAlerted
   );
 }
