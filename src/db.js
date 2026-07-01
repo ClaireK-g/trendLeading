@@ -270,14 +270,24 @@ export function getAllRecentKeywords(days = 7) {
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
   return d.prepare(`
-    SELECT keyword,
-           SUM(mention_count) as total_mentions,
-           SUM(unique_accounts) as total_unique_accounts,
-           MAX(date) as latest_date,
-           COUNT(*) as active_days
-    FROM keyword_daily_stats
-    WHERE date >= ?
-    GROUP BY keyword
+    SELECT kds.keyword,
+           SUM(kds.mention_count) as total_mentions,
+           SUM(kds.unique_accounts) as total_unique_accounts,
+           MAX(kds.date) as latest_date,
+           COUNT(*) as active_days,
+           ek.category,
+           ek.reason
+    FROM keyword_daily_stats kds
+    LEFT JOIN (
+      SELECT keyword, category, reason
+      FROM extracted_keywords
+      WHERE extracted_at = (
+        SELECT MAX(extracted_at) FROM extracted_keywords ek2
+        WHERE LOWER(ek2.keyword) = LOWER(extracted_keywords.keyword)
+      )
+    ) ek ON LOWER(ek.keyword) = LOWER(kds.keyword)
+    WHERE kds.date >= ?
+    GROUP BY kds.keyword
     ORDER BY total_mentions DESC
   `).all(cutoffStr);
 }

@@ -89,7 +89,9 @@ export async function sendDailyDigest(topKeywords) {
     const parts = [`${rank}. ${heat} ${name} ${String(score).padStart(5)}`];
     if (level && level !== '⚪ 관찰 중') parts.push(level);
     if (trend) parts.push(trend);
-    return parts.join('  ');
+    const lines = [parts.join('  ')];
+    if (kw.reason) lines.push(`     └ ${kw.reason}`);
+    return lines.join('\n');
   });
 
   // 탐침 급등 섹션
