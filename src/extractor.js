@@ -45,34 +45,46 @@ JSON 배열만 출력. confidence_score 3 이상만. 없으면 [].
 [{"keyword":"","category":"디저트/메뉴/매장명(지역)/식문화현상","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"원문 인용"}]`;
 }
 
-function buildValidatorPrompt(today, newsHeadlines) {
-  return `너는 F&B 스타트업의 PM이자, 10년차 서비스 기획자와 퍼포먼스 마케터이다.
+function buildCriticPrompt(today) {
+  return `너는 극도로 까다로운 F&B 트렌드 리서처이자 통계학자다. Generator AI가 추출한 트렌드 후보 목록의 허점과 논리적 오류를 찾아 사정없이 비판하는 것이 임무다.
 
 오늘 날짜: ${today}
-트렌드 판단 기준: 오늘 기준 2~3일 이내 신선도. 1주일 전도 늦을 수 있다.
 
-# 미션
-1차 AI가 추출한 트렌드 후보를 검증하라. 가짜, 구식, 억지 트렌드를 걸러내라.
+# 비판 가이드라인
+각 키워드에 대해 아래 질문을 던져라:
+1. "표본이 너무 적어 우연히 겹친 것 아닌가?" — 1~2개 게시글 언급은 통계적 착시일 수 있다
+2. "이미 알려진 트렌드의 변형 아닌가?" — 기존 유행어를 살짝 바꾼 것은 신규가 아니다
+3. "너무 추상적이거나 카테고리명 아닌가?" — 구체성 없는 키워드는 트렌드 시그널이 아니다
+4. "freshness_signal(원문 인용)이 실제로 '처음 봤다' 반응인가, 아니면 단순 소개글인가?"
+5. "이 키워드가 진짜 마이크로 트렌드라면, 왜 아직 뉴스에 안 나왔을까? 납득 가능한가?"
 
-# 오늘의 실시간 뉴스 헤드라인 (Google News 자동 수집)
-아래는 오늘 수집된 실제 F&B 관련 뉴스이다. 이것을 교차 검증 레퍼런스로 활용하라.
+# 출력 형식
+JSON 배열. 각 항목에 verdict(PASS/WARN/REJECT)와 critique 포함. 없으면 [].
+[{"keyword":"","verdict":"PASS|WARN|REJECT","critique":"비판 내용. PASS면 '반론 없음' 명시","weaknesses":["약점1","약점2"]}]`;
+}
+
+function buildSynthesizerPrompt(today, newsHeadlines) {
+  return `너는 F&B 트렌드 팀의 최종 의사결정자다. Generator의 초안과 Critic의 날카로운 비판을 종합하여 가장 방어 가능하고 정확한 최종 트렌드 목록을 만들어라.
+
+오늘 날짜: ${today}
+트렌드 판단 기준: 오늘 기준 2~3일 이내 신선도.
+
+# 오늘의 실시간 뉴스 헤드라인
 ${newsHeadlines}
 
-# 탈락 기준 (하나라도 해당 시 즉시 제거)
-1. 너의 학습 데이터에서 "이미 유행했다", "피크 지났다"고 확인되는 아이템이나 그 변형
-2. 매년 반복 계절 음식 (콩국수, 팥빙수, 호떡, 냉면 등)
-3. 일반 음식 카테고리명 (떡볶이, 크레페, 라떼 등)
-4. 이미 뉴스에서 대대적 보도된 메인스트림 아이템
+# 합성 규칙
+1. Critic이 REJECT한 키워드는 제거하라. 예외 없다.
+2. Critic이 WARN한 키워드는 보수적으로 재평가하라. weaknesses가 치명적이면 탈락.
+3. Critic이 PASS한 키워드만 confidence_score를 유지하거나 올릴 수 있다.
+4. WARN 생존 키워드는 confidence_score를 -1 하향하고 validation_note에 Critic 지적을 반영하라.
+5. Critic 비판을 거쳐 살아남은 것만 최종 목록에 남겨라. 의심스러우면 과감히 버려라.
 
-# 통과 기준
-1. "이미 유행한 것"이 아닌 새로운 키워드 — 위 탈락 기준에 해당하지 않으면 일단 통과
-2. 복수 계정/게시글에서 독립적으로 언급됨 (데이터 내에서 2개 이상 출처)
-3. 구체적인 매장명/메뉴명/현상명이 있음 (추상적 카테고리가 아님)
-
-중요: 마이크로 트렌드는 아직 뉴스나 검색엔진에 안 잡히는 게 정상이다. "들어본 적 없다"는 것이 탈락 사유가 아니다. 오히려 들어본 적 없는데 복수 게시글에서 언급되고 있다면 그것이 진짜 마이크로 트렌드 시그널이다.
+# 탈락 기준 (최종 보루)
+- 매년 반복 계절 음식, 일반 카테고리명, 이미 대중화된 메인스트림
 
 # 출력
-통과한 것만 JSON 배열. "validation_note" 추가. 없으면 [].`;
+최종 통과 키워드만 JSON 배열. validation_note 포함. 없으면 [].
+[{"keyword":"","category":"","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"","validation_note":""}]`;
 }
 
 const MAX_CHAR_PER_BATCH = 12000;
@@ -255,18 +267,10 @@ export function mergeSimilarKeywords(keywords) {
   });
 }
 
-async function validateKeywords(keywords, originalText) {
-  if (!keywords.length) return [];
-
-  const intel = await getTrendIntel();
-  const valPrompt = buildValidatorPrompt(intel.date, intel.headlines);
-  const prompt = valPrompt +
-    "\n\n# 1차 추출 결과\n" + JSON.stringify(keywords, null, 2) +
-    "\n\n# 원본 텍스트 (참고용)\n" + originalText.slice(0, 3000);
-
+async function callGeminiRaw(prompt, temperature = 0.1) {
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
+    generationConfig: { responseMimeType: "application/json", temperature },
   };
   const axiosOpts = { headers: { "Content-Type": "application/json" }, timeout: 90000 };
 
@@ -275,14 +279,32 @@ async function validateKeywords(keywords, originalText) {
       const url = `${GEMINI_BASE}/${model}:generateContent?key=${getNextApiKey()}`;
       const response = await axios.post(url, body, axiosOpts);
       const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-      const validated = JSON.parse(text);
-      return Array.isArray(validated) ? validated : [];
+      return JSON.parse(text);
     } catch (err) {
-      console.warn(`[validator] ${model} 실패, 다음 모델 시도...`);
+      console.warn(`[extractor] ${model} 실패, 다음 모델 시도...`);
     }
   }
-  console.warn("[validator] 모든 모델 실패, 1차 결과 그대로 반환");
-  return keywords;
+  return null;
+}
+
+async function criticKeywords(keywords, today) {
+  const criticPrompt = buildCriticPrompt(today) +
+    "\n\n# Generator 추출 결과 (비판 대상)\n" + JSON.stringify(keywords, null, 2);
+
+  const result = await callGeminiRaw(criticPrompt, 0.1);
+  if (!Array.isArray(result)) return [];
+  return result;
+}
+
+async function synthesizeKeywords(generatorOutput, criticOutput, intel, originalText) {
+  const synthPrompt = buildSynthesizerPrompt(intel.date, intel.headlines) +
+    "\n\n# Generator 초안\n" + JSON.stringify(generatorOutput, null, 2) +
+    "\n\n# Critic 비판 결과\n" + JSON.stringify(criticOutput, null, 2) +
+    "\n\n# 원본 텍스트 (참고용)\n" + originalText.slice(0, 2000);
+
+  const result = await callGeminiRaw(synthPrompt, 0.1);
+  if (!Array.isArray(result)) return generatorOutput; // fallback
+  return result;
 }
 
 export async function processBatch(posts) {
@@ -306,16 +328,34 @@ export async function processBatch(posts) {
   }
 
   const merged = mergeSimilarKeywords(allKeywords);
-  console.log(`[extractor] 1차 추출 완료: ${merged.length}개 후보`);
+  console.log(`[extractor] 1차 추출(Generator) 완료: ${merged.length}개 후보`);
 
   if (!merged.length) return [];
 
-  console.log(`[extractor] 2차 검증: 기획자/마케터 관점 필터링...`);
-  await sleep(2000);
-  const validated = await validateKeywords(merged, allText.join('\n'));
-  console.log(`[extractor] 2차 검증 완료: ${merged.length}개 → ${validated.length}개 통과`);
+  const intel = await getTrendIntel();
 
-  return validated;
+  // 2단계: Critic — Generator 허점 비판
+  console.log(`[extractor] 2차 비판(Critic): 통계적 착시·논리 오류 검증...`);
+  await sleep(2000);
+  const criticResult = await criticKeywords(merged, intel.date);
+  const rejectSet = new Set(
+    criticResult.filter(c => c.verdict === 'REJECT').map(c => c.keyword?.toLowerCase())
+  );
+  const warnMap = new Map(
+    criticResult.filter(c => c.verdict === 'WARN').map(c => [c.keyword?.toLowerCase(), c])
+  );
+  const afterCritic = merged.filter(kw => !rejectSet.has(kw.keyword?.toLowerCase()));
+  console.log(`[extractor] Critic 완료: ${merged.length}개 → REJECT ${rejectSet.size}개 제거 → ${afterCritic.length}개 생존`);
+
+  if (!afterCritic.length) return [];
+
+  // 3단계: Synthesizer — Critic 반영 최종 정제
+  console.log(`[extractor] 3차 종합(Synthesizer): 최종 정교화...`);
+  await sleep(2000);
+  const synthesized = await synthesizeKeywords(afterCritic, criticResult, intel, allText.join('\n'));
+  console.log(`[extractor] Synthesizer 완료: ${afterCritic.length}개 → ${synthesized.length}개 최종 통과`);
+
+  return synthesized;
 }
 
 export default { extractKeywords, mergeSimilarKeywords, processBatch };
