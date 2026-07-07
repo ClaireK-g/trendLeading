@@ -38,7 +38,7 @@ TELEGRAM_CHAT_ID=
 ```
 
 ## GitHub Actions
-- 매일 새벽 5시 KST 자동 실행 (cron: "0 20 * * *")
+- 매일 새벽 4시 KST 자동 실행 (cron: "0 19 * * *", Actions 지연 감안해 05:00→04:00으로 앞당김)
 - 실패 시 텔레그램 에러 알림
 - DB를 레포에 커밋하여 영구 보관
 - keepalive.yml로 60일 비활성 방지
