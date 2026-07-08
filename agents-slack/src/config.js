@@ -5,8 +5,14 @@ export default {
   // 프로바이더 선택: auto|gemini|anthropic. auto = 무료 Gemini 우선(hermes-dev 원칙).
   provider: process.env.AGENT_PROVIDER || 'auto',
 
-  // 무료 Gemini (주력) — 루트 파이프라인과 키를 공유한다.
-  geminiApiKeys: [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2].filter(Boolean),
+  // 무료 Gemini (주력) — 루트 파이프라인과 키를 공유한다. 여러 구글 계정 키로 RPM 한도를 분산.
+  geminiApiKeys: [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
+  ].filter(Boolean),
   gemini: {
     expertModel: process.env.AGENT_GEMINI_MODEL || 'gemini-2.5-flash',
     synthModel: process.env.AGENT_GEMINI_SYNTH_MODEL || 'gemini-2.5-flash',

@@ -38,8 +38,9 @@ LLM 호출은 **직접 하지 말고 추상화 함수를 거친다**:
   - `429`(rate limit) → **15초 대기** 후 재시도(같은 모델, 최대 3회).
   - `503`(overload) → **즉시 다음 모델**로 폴백(대기 없음).
   - 그 외 → 지수 백오프 `2^attempt * 2000ms`.
-- **키 로테이션**: `getNextApiKey()`가 `GEMINI_API_KEY`, `GEMINI_API_KEY_2`를 라운드로빈.
-  복수 구글 계정 키로 RPM 한도를 분산한다. 호출마다 다음 키를 쓴다.
+- **키 로테이션**: `getNextApiKey()`(파이프라인) / `nextGeminiKey()`(agents-slack)가
+  `GEMINI_API_KEY`~`GEMINI_API_KEY_5`(최대 5개)를 라운드로빈. 복수 구글 계정 키로 RPM 한도를
+  분산한다. 호출마다 다음 키를 쓴다.
 - **RPM 주의**: 호출 수를 늘리는 변경(배치 축소, 라운드 추가, 에이전트 증가)은 무료 티어 한도
   초과 위험. **먼저 총 호출 수를 계산하라.** 예: 에이전트 8인 × N라운드 + 종합 = (8N+1) 호출/논의.
 - **배치 간 지연**: 연속 호출 사이 `sleep(2000)` 이상 권장.
@@ -76,6 +77,9 @@ LLM 호출은 **직접 하지 말고 추상화 함수를 거친다**:
 # 무료 Gemini (주력) — 루트 파이프라인과 공유
 GEMINI_API_KEY=            # Google AI Studio
 GEMINI_API_KEY_2=          # 2번째 계정 키(로테이션)
+GEMINI_API_KEY_3=          # 3~5번째도 지원(선택)
+GEMINI_API_KEY_4=
+GEMINI_API_KEY_5=
 # Anthropic (옵션, 유료)
 ANTHROPIC_API_KEY=
 # 프로바이더 선택

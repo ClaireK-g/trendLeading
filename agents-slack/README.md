@@ -35,7 +35,7 @@ agents-slack/
 **Anthropic(옵션·유료)**을 전환한다. `AGENT_PROVIDER=auto`(기본)는 **Gemini 키가 있으면
 무료 Gemini를 우선** 쓰고, 없으면 Anthropic으로 폴백한다.
 
-- 무료 Gemini는 루트 파이프라인의 `GEMINI_API_KEY` / `GEMINI_API_KEY_2`를 **그대로 공유**한다(별도 키 불필요).
+- 무료 Gemini는 루트 파이프라인의 `GEMINI_API_KEY`~`GEMINI_API_KEY_5`(최대 5개)를 **그대로 공유**한다(별도 키 불필요).
 - 모델 폴백 체인(`gemini-2.5-flash`→`3.5-flash`→`flash-lite`), 키 로테이션, 429/503 처리는 `extractor.js`와 동일 패턴.
 
 ## 로컬 실행 (Slack 없이)
