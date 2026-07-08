@@ -46,7 +46,7 @@ export async function runDiscussion(topic, onMessage = async () => {}) {
       topic,
       trendText,
       transcript,
-      model: config.anthropic.synthModel,
+      tier: 'synth',
     });
   } catch (err) {
     conclusion = `(종합 실패: ${err.message})`;

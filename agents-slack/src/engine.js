@@ -1,16 +1,10 @@
 // 에이전트 엔진 — 한 전문가의 발언 1회를 생성한다.
-// Anthropic Messages API 직접 호출 + 스킬 주입. MOCK_LLM=true면 목업 응답.
+// 프로바이더 무관 llm.chat() 사용(무료 Gemini 주력 / Anthropic 옵션) + 스킬 주입.
+// MOCK_LLM=true면 목업 응답.
 
 import config from './config.js';
 import { renderSkillsForPrompt } from './skills.js';
-
-let _client = null;
-async function getClient() {
-  if (_client) return _client;
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  _client = new Anthropic({ apiKey: config.anthropic.apiKey });
-  return _client;
-}
+import { chat } from './llm.js';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -30,11 +24,11 @@ function buildSystemPrompt(member) {
 }
 
 // 지금까지의 논의 스레드를 유저 메시지로 렌더링.
-function buildTranscript(topic, trendText, transcript) {
+function buildTranscript(topic, trendText, transcript, roleName) {
   const history = transcript.length
     ? transcript.map((t) => `[${t.name}] ${t.text}`).join('\n\n')
     : '(아직 발언 없음 — 네가 첫 발언자다)';
-  return `# 논의 주제\n${topic}\n\n${trendText}\n\n# 지금까지의 논의\n${history}\n\n---\n이제 너(${'{역할}'})의 차례다. 위 논의를 이어서 네 관점으로 발언하라.`;
+  return `# 논의 주제\n${topic}\n\n${trendText}\n\n# 지금까지의 논의\n${history}\n\n---\n이제 너(${roleName})의 차례다. 위 논의를 이어서 네 관점으로 발언하라.`;
 }
 
 // 목업 응답 — 키 없이 배선을 검증하기 위한 결정론적 스텁.
@@ -46,32 +40,14 @@ function mockReply(member, topic, transcript) {
   return `${ref}${member.name} 관점에서 "${topic}"에 대해선 신선도와 근거를 더 따져봐야 합니다${skillNote}. [MOCK]`;
 }
 
-// 한 멤버의 발언 1회 생성. model 오버라이드 가능(신디사이저용).
-export async function runAgentTurn(member, { topic, trendText, transcript, model }) {
+// 한 멤버의 발언 1회 생성. tier: 'expert'|'synth'(신디사이저).
+export async function runAgentTurn(member, { topic, trendText, transcript, tier = 'expert' }) {
   if (config.mockLLM) {
     await sleep(50);
     return mockReply(member, topic, transcript);
   }
 
-  if (!config.anthropic.apiKey) {
-    throw new Error('ANTHROPIC_API_KEY 미설정 (또는 MOCK_LLM=true로 목업 실행)');
-  }
-
-  const client = await getClient();
   const system = buildSystemPrompt(member);
-  const userMsg = buildTranscript(topic, trendText, transcript).replace('{역할}', member.name);
-
-  const resp = await client.messages.create({
-    model: model || config.anthropic.expertModel,
-    max_tokens: config.anthropic.maxTokens,
-    system,
-    messages: [{ role: 'user', content: userMsg }],
-  });
-
-  const text = resp.content
-    ?.filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-  return text || '(응답 없음)';
+  const user = buildTranscript(topic, trendText, transcript, member.name);
+  return chat({ system, user, tier });
 }

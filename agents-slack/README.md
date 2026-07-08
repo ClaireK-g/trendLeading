@@ -29,14 +29,27 @@ agents-slack/
 전체 스레드를 보고 서로 참조·반박 → 마지막에 퍼실리테이터가 종합/결론/액션아이템.
 이는 파이프라인의 Generator→Critic→Synthesizer 철학을 팀 논의로 확장한 것.
 
+## LLM 프로바이더 (무료 Gemini 주력)
+
+프로바이더 추상화 계층(`src/llm.js`, hermes-dev 스킬 규칙)으로 **무료 Gemini**와
+**Anthropic(옵션·유료)**을 전환한다. `AGENT_PROVIDER=auto`(기본)는 **Gemini 키가 있으면
+무료 Gemini를 우선** 쓰고, 없으면 Anthropic으로 폴백한다.
+
+- 무료 Gemini는 루트 파이프라인의 `GEMINI_API_KEY` / `GEMINI_API_KEY_2`를 **그대로 공유**한다(별도 키 불필요).
+- 모델 폴백 체인(`gemini-2.5-flash`→`3.5-flash`→`flash-lite`), 키 로테이션, 429/503 처리는 `extractor.js`와 동일 패턴.
+
 ## 로컬 실행 (Slack 없이)
 
 ```bash
 # 키 없이 배선·포맷만 검증 (오프라인)
 MOCK_LLM=true node agents-slack/index.js discuss "우베 디저트 지금 밀어야 하나?"
 
-# 실제 LLM으로 논의 (ANTHROPIC_API_KEY 필요)
+# 무료 Gemini로 실제 논의 (GEMINI_API_KEY 있으면 auto로 자동 선택)
 node agents-slack/index.js discuss "설이동, 지금 콘텐츠로 다뤄야 하나?"
+
+# 프로바이더 강제 지정
+AGENT_PROVIDER=gemini    node agents-slack/index.js discuss "..."   # 무료
+AGENT_PROVIDER=anthropic node agents-slack/index.js discuss "..."   # 유료(opt-in)
 ```
 
 ## Slack 봇 실행
@@ -65,8 +78,11 @@ node agents-slack/index.js serve   # 또는 npm run agents
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `AGENT_EXPERT_MODEL` | `claude-sonnet-5` | 전문가 에이전트 모델 |
-| `AGENT_SYNTH_MODEL` | `claude-opus-4-8` | 신디사이저(종합) 모델 |
+| `AGENT_PROVIDER` | `auto` | `auto`(무료 우선)\|`gemini`\|`anthropic` |
+| `AGENT_GEMINI_MODEL` | `gemini-2.5-flash` | 무료 전문가 모델 |
+| `AGENT_GEMINI_SYNTH_MODEL` | `gemini-2.5-flash` | 무료 종합 모델 |
+| `AGENT_EXPERT_MODEL` | `claude-sonnet-5` | Anthropic 전문가 모델 |
+| `AGENT_SYNTH_MODEL` | `claude-opus-4-8` | Anthropic 종합 모델 |
 | `AGENT_ROUNDS` | `2` | 전문가 발언 라운드 수 |
 | `AGENT_TURN_DELAY` | `800` | 발언 간 지연(ms) — rate limit 완화 |
 | `MOCK_LLM` | `false` | 목업 모드(오프라인 검증) |
@@ -74,9 +90,11 @@ node agents-slack/index.js serve   # 또는 npm run agents
 ## 비용 주의
 
 논의 1회 = (전문가 8인 × 라운드 수 + 신디사이저 1) 회의 LLM 호출.
-기본 2라운드면 17회 호출. `AGENT_ROUNDS`로 조절. 트렌드 파이프라인의
-Gemini 무료 티어와 달리 이 서비스는 **Anthropic 유료 API**를 쓰므로,
-운영 비용은 스폰서(지경) 확인이 필요하다.
+기본 2라운드면 17회 호출. `AGENT_ROUNDS`로 조절.
+
+- **기본은 무료 Gemini**(파이프라인과 동일 무료 티어) — 무료 티어 RPM 한도 안에서 운영.
+  호출 수를 키우는 변경(라운드·에이전트 증가)은 한도 초과 위험이니 먼저 총 호출 수를 계산할 것.
+- **Anthropic은 opt-in 유료**. 상시 유료 운영은 스폰서(지경) 확인 필요.
 
 ## 로스터 커스터마이징
 

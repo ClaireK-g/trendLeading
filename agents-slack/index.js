@@ -45,7 +45,12 @@ async function main() {
         process.exit(1);
       }
       loadSkills();
-      if (config.mockLLM) console.log('[mode] MOCK_LLM — 목업 응답으로 배선 검증\n');
+      if (config.mockLLM) {
+        console.log('[mode] MOCK_LLM — 목업 응답으로 배선 검증\n');
+      } else {
+        const { activeProviderLabel } = await import('./src/llm.js');
+        console.log(`[mode] 프로바이더: ${activeProviderLabel()}\n`);
+      }
 
       const post = async ({ member, text, round }) => {
         const badge = round === 'final' ? '종합' : `R${round}`;
