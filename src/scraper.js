@@ -5,6 +5,7 @@ import { readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import config from './config.js';
+import { getRecentSourceUrls } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -349,6 +350,27 @@ const NAVER_DISCOVERY_QUERIES = [
   '팝업스토어 디저트 한정',
 ];
 
+const MAX_POST_AGE_DAYS = 3; // 트렌드 시간 기준(2~3일)과 일치 — 오래된 요약기사 유입 차단
+
+// 뉴스 API의 pubDate(RFC822)·블로그 API의 postdate(yyyyMMdd)를 파싱해 최근성 판단.
+// 파싱 실패 시 true(통과) — 부분 실패가 수집 전체를 죽이지 않도록 fail-open.
+function isRecentEnough(item) {
+  const raw = item.pubDate || item.postdate;
+  if (!raw) return true;
+
+  let published;
+  if (/^\d{8}$/.test(raw)) {
+    // postdate: yyyyMMdd
+    published = new Date(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`);
+  } else {
+    published = new Date(raw);
+  }
+  if (Number.isNaN(published.getTime())) return true;
+
+  const ageDays = (Date.now() - published.getTime()) / (1000 * 60 * 60 * 24);
+  return ageDays <= MAX_POST_AGE_DAYS;
+}
+
 // 네이버 검색 API 공통 (블로그/뉴스 동일 키)
 async function searchNaver(endpoint, sourceTag) {
   const { clientId, clientSecret } = config.naverSearch || {};
@@ -356,6 +378,7 @@ async function searchNaver(endpoint, sourceTag) {
 
   const allPosts = [];
   let dropped = 0;
+  let stale = 0;
 
   for (const query of NAVER_DISCOVERY_QUERIES) {
     try {
@@ -369,6 +392,10 @@ async function searchNaver(endpoint, sourceTag) {
       });
 
       for (const item of res.data?.items || []) {
+        if (!isRecentEnough(item)) {
+          stale++;
+          continue;
+        }
         const text = (item.title + ' ' + (item.description || '')).replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').trim();
         if (!isFoodRelevant(text)) {
           dropped++;
@@ -389,6 +416,7 @@ async function searchNaver(endpoint, sourceTag) {
   }
 
   if (dropped) console.log(`[scraper] ${sourceTag}: 노이즈 ${dropped}건 필터링`);
+  if (stale) console.log(`[scraper] ${sourceTag}: 발행 ${MAX_POST_AGE_DAYS}일 초과 ${stale}건 제외`);
   return allPosts;
 }
 
@@ -533,13 +561,31 @@ export async function collectDaily() {
   const igPosts = await collectInstagram();
   allPosts.push(...igPosts);
 
-  // sourceUrl 기준 중복 제거
+  // sourceUrl 기준 중복 제거 (당일 배치 내)
   const seen = new Set();
-  const deduplicated = allPosts.filter((p) => {
+  const sameDayDeduplicated = allPosts.filter((p) => {
     if (!p.sourceUrl || seen.has(p.sourceUrl)) return false;
     seen.add(p.sourceUrl);
     return true;
   });
+
+  // 크로스데이 중복 제거 — 최근 14일 내 이미 수집한 기사 재수집 차단
+  let recentUrls;
+  try {
+    recentUrls = getRecentSourceUrls(14);
+  } catch (err) {
+    console.warn(`[scraper] 기수집 URL 조회 실패 (무시): ${err.message}`);
+    recentUrls = new Set();
+  }
+  let skippedRecent = 0;
+  const deduplicated = sameDayDeduplicated.filter((p) => {
+    if (p.sourceUrl && recentUrls.has(p.sourceUrl)) {
+      skippedRecent++;
+      return false;
+    }
+    return true;
+  });
+  if (skippedRecent) console.log(`[scraper] 기수집 URL ${skippedRecent}건 스킵`);
 
   console.log(`[scraper] 총 ${deduplicated.length}건 수집 완료 (중복 제거 후)`);
   // risingKeywords를 함께 노출 — 데이터랩 검증 신호

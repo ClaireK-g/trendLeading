@@ -3,6 +3,7 @@ import axios from "axios";
 import config from "./config.js";
 import { isBlacklisted } from "./blacklist.js";
 import { fetchTrendIntelligence } from "./trend-intel.js";
+import { getRecentExtractedKeywords } from "./db.js";
 
 let _trendIntel = null;
 
@@ -13,7 +14,11 @@ async function getTrendIntel() {
 
 export function resetTrendIntel() { _trendIntel = null; }
 
-function buildSystemPrompt(today) {
+function buildSystemPrompt(today, excludeKeywords = []) {
+  const excludeBlock = excludeKeywords.length
+    ? `\n# 이미 발견된 키워드 (제외 대상 — 동일·유사 변형 포함)\n이 목록과 겹치는 키워드는 완전히 새로운 급등 근거(원문에 명시된 새로운 신선도 신호)가 없는 한 출력하지 마라:\n${excludeKeywords.join(", ")}\n`
+    : "";
+
   return `너는 대한민국 F&B 업계의 '넥스트 트렌드'만 포착하는 초정밀 트렌드 스나이퍼이다.
 
 오늘 날짜: ${today}
@@ -22,7 +27,7 @@ function buildSystemPrompt(today) {
 # 미션
 인스타그램 텍스트에서 "지금 이 순간 막 태동하는" 마이크로 트렌드만 추출하라.
 핵심은 '신선도(Freshness)' — 트렌드는 하루하루가 다르다.
-
+${excludeBlock}
 # 절대 제외 기준
 1. 이미 유행이 지났거나 대중화된 아이템과 그 변형
 2. 일반 음식/음료명, 전국 체인, 노이즈 키워드
@@ -111,9 +116,9 @@ function getNextApiKey() {
   return key;
 }
 
-async function callGemini(textChunk) {
+async function callGemini(textChunk, excludeKeywords = []) {
   const intel = await getTrendIntel();
-  const sysPrompt = buildSystemPrompt(intel.date);
+  const sysPrompt = buildSystemPrompt(intel.date, excludeKeywords);
   const prompt = sysPrompt + "\n\n# 분석할 데이터\n" + textChunk;
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -174,14 +179,14 @@ function buildTextBlock(posts) {
   return chunks;
 }
 
-export async function extractKeywords(textBatch) {
+export async function extractKeywords(textBatch, excludeKeywords = []) {
   const chunks = buildTextBlock(textBatch);
   const allKeywords = [];
 
   for (const chunk of chunks) {
     let keywords;
     try {
-      keywords = await callGemini(chunk);
+      keywords = await callGemini(chunk, excludeKeywords);
     } catch (e) {
       console.error("[extractor] Gemini 호출 실패:", e.message);
       keywords = [];
@@ -314,13 +319,23 @@ export async function processBatch(posts) {
     batches.push(posts.slice(i, i + BATCH_SIZE));
   }
 
+  let excludeKeywords = [];
+  try {
+    excludeKeywords = getRecentExtractedKeywords(7, 40);
+  } catch (err) {
+    console.warn(`[extractor] 기추출 키워드 조회 실패 (무시): ${err.message}`);
+  }
+  if (excludeKeywords.length) {
+    console.log(`[extractor] 최근 7일 기추출 키워드 ${excludeKeywords.length}개 프롬프트 제외 목록으로 주입`);
+  }
+
   const total = batches.length;
   const allKeywords = [];
   const allText = [];
 
   for (let i = 0; i < batches.length; i++) {
     console.log(`[extractor] 1차 추출: Gemini API 호출 (${i + 1}/${total})...`);
-    const keywords = await extractKeywords(batches[i]);
+    const keywords = await extractKeywords(batches[i], excludeKeywords);
     allKeywords.push(...keywords);
     allText.push(...batches[i].map(p => p.caption || ''));
 

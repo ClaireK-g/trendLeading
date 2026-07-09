@@ -91,6 +91,7 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_alerts_keyword_at ON alerts_sent(keyword, alerted_at);
     CREATE INDEX IF NOT EXISTS idx_rp_collect_date ON raw_posts(collect_date);
     CREATE INDEX IF NOT EXISTS idx_rp_source ON raw_posts(source);
+    CREATE INDEX IF NOT EXISTS idx_rp_url ON raw_posts(source_url);
   `);
 
   // 기존 DB 마이그레이션 — 새 컬럼이 없으면 추가
@@ -120,6 +121,17 @@ export function insertRawPost(post) {
     collect_date: new Date().toISOString().slice(0, 10),
   });
   return info.lastInsertRowid;
+}
+
+// 최근 N일 내 이미 수집한 URL 집합 — 크로스데이 중복 수집 방지 (같은 기사 재수집 차단)
+export function getRecentSourceUrls(days = 14) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const rows = d.prepare(
+    'SELECT DISTINCT source_url FROM raw_posts WHERE source_url IS NOT NULL AND collected_at >= ?'
+  ).all(cutoff.toISOString());
+  return new Set(rows.map((r) => r.source_url));
 }
 
 export function upsertDailyCollectionStats(stats) {
@@ -153,6 +165,22 @@ export function getDailyCollectionStats(days = 30) {
 // ---------------------------------------------------------------------------
 // extracted_keywords
 // ---------------------------------------------------------------------------
+// 최근 N일 내 이미 추출된 키워드 목록 — Generator 프롬프트의 제외 목록으로 주입 (반복 보고 방지)
+export function getRecentExtractedKeywords(days = 7, limit = 40) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const rows = d.prepare(`
+    SELECT keyword, COUNT(*) AS cnt, MAX(extracted_at) AS last_seen
+    FROM extracted_keywords
+    WHERE extracted_at >= ?
+    GROUP BY keyword
+    ORDER BY cnt DESC, last_seen DESC
+    LIMIT ?
+  `).all(cutoff.toISOString(), limit);
+  return rows.map((r) => r.keyword);
+}
+
 export function insertExtractedKeywords(keywords, postId) {
   const d = getDB();
   const stmt = d.prepare(`
