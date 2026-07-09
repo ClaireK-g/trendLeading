@@ -99,6 +99,15 @@ export function initDB() {
   if (!cols.includes('source')) d.exec("ALTER TABLE raw_posts ADD COLUMN source TEXT DEFAULT 'unknown'");
   if (!cols.includes('collect_date')) d.exec("ALTER TABLE raw_posts ADD COLUMN collect_date TEXT");
 
+  // 검색가능형 키워드(Phase 1) — 단독 검색으로 의미가 통하는 키워드 형태 (blog-traffic-dev 스킬 §3)
+  const ekCols = d.prepare("PRAGMA table_info(extracted_keywords)").all().map(c => c.name);
+  if (!ekCols.includes('search_keyword')) d.exec("ALTER TABLE extracted_keywords ADD COLUMN search_keyword TEXT");
+
+  // 검색가능성 검증 결과(Phase 1 STEP 4.5) — doc_count: 경쟁 블로그 문서 수(공급 지표), searchable: 0=검증 실패
+  const kdsCols = d.prepare("PRAGMA table_info(keyword_daily_stats)").all().map(c => c.name);
+  if (!kdsCols.includes('doc_count')) d.exec("ALTER TABLE keyword_daily_stats ADD COLUMN doc_count INTEGER");
+  if (!kdsCols.includes('searchable')) d.exec("ALTER TABLE keyword_daily_stats ADD COLUMN searchable INTEGER");
+
   return d;
 }
 
@@ -184,8 +193,8 @@ export function getRecentExtractedKeywords(days = 7, limit = 40) {
 export function insertExtractedKeywords(keywords, postId) {
   const d = getDB();
   const stmt = d.prepare(`
-    INSERT INTO extracted_keywords (keyword, category, region, reason, confidence_score, extracted_at, post_id)
-    VALUES (@keyword, @category, @region, @reason, @confidence_score, @extracted_at, @post_id)
+    INSERT INTO extracted_keywords (keyword, category, region, reason, confidence_score, extracted_at, post_id, search_keyword)
+    VALUES (@keyword, @category, @region, @reason, @confidence_score, @extracted_at, @post_id, @search_keyword)
   `);
 
   const insertMany = d.transaction((rows) => {
@@ -198,11 +207,23 @@ export function insertExtractedKeywords(keywords, postId) {
         confidence_score: kw.confidence_score ?? 3,
         extracted_at: kw.extracted_at ?? new Date().toISOString(),
         post_id: postId,
+        search_keyword: kw.search_keyword ?? null,
       });
     }
   });
 
   insertMany(keywords);
+}
+
+// STEP 4.5(searchability.js)의 검증 결과를 keyword_daily_stats에 반영.
+// upsertDailyStats로 당일 행이 이미 생성돼 있어야 반영된다(없으면 조용히 무시 — fail-open).
+export function setSearchability(keyword, date, { docCount = null, searchable = null } = {}) {
+  const d = getDB();
+  const normalized = keyword.trim().toLowerCase();
+  d.prepare(`
+    UPDATE keyword_daily_stats SET doc_count = ?, searchable = ?
+    WHERE keyword = ? AND date = ?
+  `).run(docCount, searchable === null ? null : (searchable ? 1 : 0), normalized, date);
 }
 
 // ---------------------------------------------------------------------------
@@ -304,16 +325,26 @@ export function getAllRecentKeywords(days = 7) {
            MAX(kds.date) as latest_date,
            COUNT(*) as active_days,
            ek.category,
-           ek.reason
+           ek.region,
+           ek.reason,
+           ek.search_keyword,
+           rp.source_url,
+           (SELECT doc_count FROM keyword_daily_stats k2
+              WHERE k2.keyword = kds.keyword AND k2.doc_count IS NOT NULL
+              ORDER BY k2.date DESC LIMIT 1) as doc_count,
+           (SELECT searchable FROM keyword_daily_stats k2
+              WHERE k2.keyword = kds.keyword AND k2.searchable IS NOT NULL
+              ORDER BY k2.date DESC LIMIT 1) as searchable
     FROM keyword_daily_stats kds
     LEFT JOIN (
-      SELECT keyword, category, reason
+      SELECT keyword, category, region, reason, search_keyword, post_id
       FROM extracted_keywords
       WHERE extracted_at = (
         SELECT MAX(extracted_at) FROM extracted_keywords ek2
         WHERE LOWER(ek2.keyword) = LOWER(extracted_keywords.keyword)
       )
     ) ek ON LOWER(ek.keyword) = LOWER(kds.keyword)
+    LEFT JOIN raw_posts rp ON rp.id = ek.post_id
     WHERE kds.date >= ?
     GROUP BY kds.keyword
     ORDER BY total_mentions DESC

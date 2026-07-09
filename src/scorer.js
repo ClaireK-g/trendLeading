@@ -133,9 +133,27 @@ export async function calculateTrendScore(keyword) {
  */
 export async function rankAllKeywords() {
   const keywords = await getAllRecentKeywords(7);
+  const metaByKeyword = new Map(keywords.map(k => [k.keyword, k]));
   const scored = await Promise.all(keywords.map(k => calculateTrendScore(k.keyword)));
-  scored.sort((a, b) => b.trendScore - a.trendScore);
-  return scored.slice(0, 30);
+
+  // getAllRecentKeywords의 메타(category/reason/search_keyword/doc_count/searchable/source_url)를
+  // calculateTrendScore 결과에 다시 합친다 — 안 그러면 다이제스트가 reason/검색링크를 못 만든다.
+  const merged = scored.map(s => {
+    const meta = metaByKeyword.get(s.keyword) || {};
+    return {
+      ...s,
+      category: meta.category ?? null,
+      region: meta.region ?? null,
+      reason: meta.reason ?? null,
+      searchKeyword: meta.search_keyword ?? null,
+      docCount: meta.doc_count ?? null,
+      searchable: meta.searchable === null || meta.searchable === undefined ? null : !!meta.searchable,
+      sourceUrl: meta.source_url ?? null,
+    };
+  });
+
+  merged.sort((a, b) => b.trendScore - a.trendScore);
+  return merged.slice(0, 30);
 }
 
 /**

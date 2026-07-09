@@ -45,9 +45,19 @@ ${excludeBlock}
 - 3: 인플루언서 언급 시작 단계
 - 2 이하: 추출하지 마라
 
+# search_keyword 규칙 (매우 중요 — 검색 안 되는 키워드는 쓸모없다)
+keyword와 별개로 "네이버에 그대로 검색했을 때 이 소재가 검색되는 형태"를 search_keyword에 담아라:
+1. 단독 검색으로 의미가 통해야 한다: 브랜드+메뉴("버거킹 콘크리트"), 지역+가게명("성수 설이동"),
+   프로그램+소재("언더커버 쉐프 식당"). keyword 자체가 이미 이런 형태면 keyword와 동일하게 채워도 된다.
+2. 일반명사·동음이의어를 단독으로 쓰지 마라 (예: "콘크리트", "테이크" 단독 금지 — 건축자재 등과 혼동됨).
+3. 원문에서 브랜드/지역/출처를 찾을 수 없으면 search_keyword를 null로 두고 confidence_score를 1 낮춰라.
+   추측으로 브랜드를 지어내는 것은 브랜드를 아예 누락하는 것보다 나쁘다.
+4. 여러 브랜드가 나열된 뉴스 요약기사(예: "[오늘 뭐 먹지] A사·B사·C사 외...")에서는 브랜드-메뉴 연결이
+   끊기기 쉽다 — reason에 브랜드가 원문 근거와 함께 명시되지 않으면 search_keyword를 null로 둬라.
+
 # 출력
 JSON 배열만 출력. confidence_score 3 이상만. 없으면 [].
-[{"keyword":"","category":"디저트/메뉴/매장명(지역)/식문화현상","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"원문 인용"}]`;
+[{"keyword":"","search_keyword":"","category":"디저트/메뉴/매장명(지역)/식문화현상","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"원문 인용"}]`;
 }
 
 function buildCriticPrompt(today) {
@@ -62,6 +72,8 @@ function buildCriticPrompt(today) {
 3. "너무 추상적이거나 카테고리명 아닌가?" — 구체성 없는 키워드는 트렌드 시그널이 아니다
 4. "freshness_signal(원문 인용)이 실제로 '처음 봤다' 반응인가, 아니면 단순 소개글인가?"
 5. "이 키워드가 진짜 마이크로 트렌드라면, 왜 아직 뉴스에 안 나왔을까? 납득 가능한가?"
+6. "search_keyword가 단독 검색해도 이 소재로 검색되는 형태인가, 아니면 동음이의어/일반명사라
+   다른 걸 검색하게 되는가?" — 후자면 WARN 또는 REJECT (예: "콘크리트"만 있으면 건축자재와 혼동)
 
 # 출력 형식
 JSON 배열. 각 항목에 verdict(PASS/WARN/REJECT)와 critique 포함. 없으면 [].
@@ -86,10 +98,11 @@ ${newsHeadlines}
 
 # 탈락 기준 (최종 보루)
 - 매년 반복 계절 음식, 일반 카테고리명, 이미 대중화된 메인스트림
+- search_keyword가 없거나(null) 동음이의어 단독 형태면 그대로 null 유지 — 추측으로 채우지 마라
 
 # 출력
 최종 통과 키워드만 JSON 배열. validation_note 포함. 없으면 [].
-[{"keyword":"","category":"","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"","validation_note":""}]`;
+[{"keyword":"","search_keyword":"","category":"","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"","validation_note":""}]`;
 }
 
 const MAX_CHAR_PER_BATCH = 12000;

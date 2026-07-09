@@ -5,6 +5,7 @@ import * as extractor from './extractor.js';
 import { detectBursts, shouldAlert, rankAllKeywords } from './scorer.js';
 import { sendAlert, sendDailyDigest } from './alerter.js';
 import { runProbe, verifyWithDatalab } from './probe.js';
+import { verifySearchability } from './searchability.js';
 import config from './config.js';
 
 function timestamp() {
@@ -114,6 +115,16 @@ export async function runPipeline() {
       verifiedKeywords = await verifyWithDatalab(keywords);
     } catch (err) {
       console.warn('[pipeline] 역검증 실패 (무시):', err.message);
+    }
+  }
+
+  // ── STEP 4.5: 검색가능성 검증 — 네이버 검색으로 실제 검색되는지 + 경쟁 문서 수 확인 ──
+  if (verifiedKeywords.length > 0) {
+    console.log('[pipeline] [STEP 4.5] 검색가능성 검증...');
+    try {
+      verifiedKeywords = await verifySearchability(verifiedKeywords);
+    } catch (err) {
+      console.warn('[pipeline] 검색가능성 검증 실패 (무시):', err.message);
     }
   }
 

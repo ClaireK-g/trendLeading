@@ -67,10 +67,18 @@ export async function sendAlert(trendData) {
   }
 }
 
+function naverSearchLink(term) {
+  return `https://search.naver.com/search.naver?query=${encodeURIComponent(term)}`;
+}
+
 export async function sendDailyDigest(topKeywords) {
   const date = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
   const time = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
-  const top10 = topKeywords.slice(0, 10);
+
+  // searchable:false(검증 실패)는 상위 랭킹에서 빼고 별도 "검증 필요" 섹션으로 분리 (콘크리트 사건 방지)
+  const verified = topKeywords.filter(kw => kw.searchable !== false);
+  const needsVerification = topKeywords.filter(kw => kw.searchable === false);
+  const top10 = verified.slice(0, 10);
 
   const rows = top10.map((kw, i) => {
     const rank = String(i + 1).padStart(2, ' ');
@@ -91,6 +99,12 @@ export async function sendDailyDigest(topKeywords) {
     if (trend) parts.push(trend);
     const lines = [parts.join('  ')];
     if (kw.reason) lines.push(`     └ ${kw.reason}`);
+
+    const searchTerm = kw.searchKeyword || kw.keyword;
+    if (searchTerm) lines.push(`     └ 🔎 검색: ${naverSearchLink(searchTerm)}`);
+    if (kw.sourceUrl) lines.push(`     └ 📰 근거: ${kw.sourceUrl}`);
+    if (kw.docCount != null) lines.push(`     └ 📄 경쟁 블로그 글: 약 ${kw.docCount}건`);
+
     return lines.join('\n');
   });
 
@@ -98,6 +112,11 @@ export async function sendDailyDigest(topKeywords) {
   const probeSpikes = topKeywords.probeSpikes || [];
   const probeRows = probeSpikes.slice(0, 8).map(s =>
     `  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg}→${s.recentAvg})`
+  );
+
+  // 검증 필요 섹션 — 검색 결과 없음/동음이의 오염 의심 (수동 확인 필요)
+  const verifyRows = needsVerification.slice(0, 5).map(kw =>
+    `  ⚠️ ${kw.keyword} — 검색 결과 없음/불일치 의심 (수동 확인 필요)`
   );
 
   const sections = [
@@ -121,6 +140,15 @@ export async function sendDailyDigest(topKeywords) {
       '■ LLM 추출 트렌드 키워드',
       '━━━━━━━━━━━━━━━━━━━━━━',
       ...rows,
+    );
+  }
+
+  if (verifyRows.length) {
+    sections.push(
+      '',
+      '■ 검증 필요 (검색 안 되는 키워드 — 자동 제외됨)',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      ...verifyRows,
     );
   }
 
