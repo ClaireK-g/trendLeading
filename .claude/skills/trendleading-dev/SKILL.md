@@ -128,6 +128,11 @@ node --check src/수정한파일.js   # 문법 확인 (빠른 1차 체크)
 - [ ] 한국어 커밋 메시지, 기존 로그 스타일(`[모듈명]` 접두) 유지
 - [ ] 프롬프트/스키마 변경 시 CLAUDE.md·MOCK_KEYWORDS·db insert 동기화
 
+## 관련 문서·스킬
+
+- **blog-traffic-dev 스킬** (`.claude/skills/blog-traffic-dev/SKILL.md`) — 이 파이프라인의 진짜 목표(블로그 방문자 유입)와 황금 키워드 공식, 검색가능형 키워드 규칙. **키워드 추출·스코어링·다이제스트를 만질 때 반드시 함께 적용.**
+- **재설계 설계서** (`docs/redesign-blog-traffic.md`) — 블로그 소재 발굴 파이프라인으로의 전환 계획 (Phase 0~4). 실행 시 Phase 순서 엄수.
+
 ## 관련 프로젝트
 
 **techLeading** (github.com/ClaireK-g/techLeading) — 동일 구조의 기술 트렌드 감지(HN/PH 주력). 여기서 고친 구조적 버그는 techLeading에도 있을 가능성이 높다 — 발견 시 사용자에게 알려라.
