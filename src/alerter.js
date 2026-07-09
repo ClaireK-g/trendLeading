@@ -71,45 +71,61 @@ function naverSearchLink(term) {
   return `https://search.naver.com/search.naver?query=${encodeURIComponent(term)}`;
 }
 
+const CONTENT_TYPE_TAGS = {
+  '방송미디어': '📺 방송미디어',
+  '신메뉴출시': '🆕 신메뉴출시',
+  '지역맛집': '📍 지역맛집',
+  '식문화현상': '🌊 식문화현상',
+  '시즌성': '🗓️ 시즌성',
+};
+
+function heatIcon(trendScore) {
+  if (trendScore > 5) return '🔴';
+  if (trendScore > 3.5) return '🟠';
+  if (trendScore > 2.5) return '🟡';
+  if (trendScore > 1) return '🟢';
+  return '⚪';
+}
+
+// 리포트 한 줄(키워드 라인 + 근거/링크 줄들)을 만든다. 황금 소재/관찰 중 섹션이 공유한다.
+function formatDigestRow(kw, rank) {
+  const name = (kw.keyword || '').padEnd(12);
+  const score = kw.trendScore != null ? kw.trendScore.toFixed?.(1) ?? kw.trendScore : '-';
+  const tag = CONTENT_TYPE_TAGS[kw.contentType] || '';
+  const level = kw.levelLabel || kw.trendLevel || '';
+
+  const parts = [`${rank}. ${heatIcon(kw.trendScore)} ${name} ${String(score).padStart(5)}`];
+  if (tag) parts.push(tag);
+  if (level && level !== '⚪ 관찰 중') parts.push(level);
+
+  const lines = [parts.join('  ')];
+  if (kw.reason) lines.push(`     └ ${kw.reason}`);
+
+  const searchTerm = kw.searchKeyword || kw.keyword;
+  if (searchTerm) lines.push(`     └ 🔎 검색: ${naverSearchLink(searchTerm)}`);
+  if (kw.sourceUrl) lines.push(`     └ 📰 근거: ${kw.sourceUrl}`);
+  if (kw.docCount != null) lines.push(`     └ 📄 경쟁 블로그 글: 약 ${kw.docCount}건`);
+
+  return lines.join('\n');
+}
+
 export async function sendDailyDigest(topKeywords) {
   const date = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
   const time = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+  const probeSpikes = topKeywords.probeSpikes || [];
 
   // searchable:false(검증 실패)는 상위 랭킹에서 빼고 별도 "검증 필요" 섹션으로 분리 (콘크리트 사건 방지)
   const verified = topKeywords.filter(kw => kw.searchable !== false);
   const needsVerification = topKeywords.filter(kw => kw.searchable === false);
-  const top10 = verified.slice(0, 10);
 
-  const rows = top10.map((kw, i) => {
-    const rank = String(i + 1).padStart(2, ' ');
-    const name = (kw.keyword || '').padEnd(12);
-    const score = kw.trendScore != null ? kw.trendScore.toFixed?.(1) ?? kw.trendScore : '-';
+  // activeDays<3(신규) = 오늘의 황금 소재, 그 이상(지속 노출) = 관찰 중 — 새 소재와 지속 트렌드를 분리
+  // 표기한다(blog-traffic-dev 스킬 §4). topKeywords는 이미 finalScore(opportunityScore 반영) 내림차순.
+  const golden = verified.filter(kw => (kw.activeDays ?? 0) < 3).slice(0, 5);
+  const observing = verified.filter(kw => (kw.activeDays ?? 0) >= 3).slice(0, 5);
 
-    let heat;
-    if (kw.trendScore > 5) heat = '🔴';
-    else if (kw.trendScore > 3.5) heat = '🟠';
-    else if (kw.trendScore > 2.5) heat = '🟡';
-    else if (kw.trendScore > 1) heat = '🟢';
-    else heat = '⚪';
+  const goldenRows = golden.map((kw, i) => formatDigestRow(kw, i + 1));
+  const observingRows = observing.map((kw, i) => formatDigestRow(kw, i + 1));
 
-    const level = kw.levelLabel || kw.trendLevel || '';
-    const trend = kw.searchTrend || '';
-    const parts = [`${rank}. ${heat} ${name} ${String(score).padStart(5)}`];
-    if (level && level !== '⚪ 관찰 중') parts.push(level);
-    if (trend) parts.push(trend);
-    const lines = [parts.join('  ')];
-    if (kw.reason) lines.push(`     └ ${kw.reason}`);
-
-    const searchTerm = kw.searchKeyword || kw.keyword;
-    if (searchTerm) lines.push(`     └ 🔎 검색: ${naverSearchLink(searchTerm)}`);
-    if (kw.sourceUrl) lines.push(`     └ 📰 근거: ${kw.sourceUrl}`);
-    if (kw.docCount != null) lines.push(`     └ 📄 경쟁 블로그 글: 약 ${kw.docCount}건`);
-
-    return lines.join('\n');
-  });
-
-  // 탐침 급등 섹션
-  const probeSpikes = topKeywords.probeSpikes || [];
   const probeRows = probeSpikes.slice(0, 8).map(s =>
     `  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg}→${s.recentAvg})`
   );
@@ -120,9 +136,9 @@ export async function sendDailyDigest(topKeywords) {
   );
 
   const sections = [
-    `🔍 trendLeading 일일 리포트`,
+    `🔍 trendLeading 블로그 소재 리포트`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
-    `📅 ${date} ${time}`,
+    `📅 ${date} ${time} — 오늘 글감 추천`,
   ];
 
   if (probeRows.length) {
@@ -134,12 +150,21 @@ export async function sendDailyDigest(topKeywords) {
     );
   }
 
-  if (rows.length) {
+  if (goldenRows.length) {
     sections.push(
       '',
-      '■ LLM 추출 트렌드 키워드',
+      '■ 🥇 오늘의 황금 소재 (수요↑ 경쟁↓)',
       '━━━━━━━━━━━━━━━━━━━━━━',
-      ...rows,
+      ...goldenRows,
+    );
+  }
+
+  if (observingRows.length) {
+    sections.push(
+      '',
+      '■ 관찰 중 (지속 트렌드)',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      ...observingRows,
     );
   }
 
@@ -154,7 +179,7 @@ export async function sendDailyDigest(topKeywords) {
 
   sections.push(
     '',
-    `총 ${top10.length + probeSpikes.length}개 시그널 감지`,
+    `총 ${goldenRows.length + observingRows.length + probeSpikes.length}개 시그널 감지`,
     '🔴5+ 🟠3.5+ 🟡2.5+ 🟢1+ ⚪미약',
   );
 

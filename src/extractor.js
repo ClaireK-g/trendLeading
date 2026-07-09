@@ -100,9 +100,18 @@ ${newsHeadlines}
 - 매년 반복 계절 음식, 일반 카테고리명, 이미 대중화된 메인스트림
 - search_keyword가 없거나(null) 동음이의어 단독 형태면 그대로 null 유지 — 추측으로 채우지 마라
 
+# content_type 분류 (블로그 글감 유형 — 아래 5개 중 하나)
+- 방송미디어: TV/OTT/유튜브 방송에서 소개된 식당/메뉴. "~에 나온", "~에 나왔던" 표현
+- 신메뉴출시: 브랜드/매장의 신제품·시그니처 메뉴 출시 발표
+- 지역맛집: 특정 지역의 신규/오픈런 매장 (매장명·지역명이 핵심)
+- 식문화현상: 특정 매장에 종속되지 않는 새로운 소비 패턴·트렌드 현상
+- 시즌성: 매년 반복되지만 시즌 초입이라 아직 콘텐츠가 적은 소재. Critic이 "매년 반복"으로 REJECT하지
+  않았고 살아남았다면, 계절 반복 자체를 이유로 탈락시키지 말고 이 태그로 분류하라(시즌 초입 선점은
+  유효한 글감이다 — blog-traffic-dev 스킬 §5)
+
 # 출력
 최종 통과 키워드만 JSON 배열. validation_note 포함. 없으면 [].
-[{"keyword":"","search_keyword":"","category":"","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"","validation_note":""}]`;
+[{"keyword":"","search_keyword":"","category":"","region":null,"reason":"","confidence_score":3,"co_keywords":[],"freshness_signal":"","validation_note":"","content_type":"방송미디어|신메뉴출시|지역맛집|식문화현상|시즌성"}]`;
 }
 
 const MAX_CHAR_PER_BATCH = 12000;

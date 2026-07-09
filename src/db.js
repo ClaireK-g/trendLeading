@@ -102,6 +102,8 @@ export function initDB() {
   // 검색가능형 키워드(Phase 1) — 단독 검색으로 의미가 통하는 키워드 형태 (blog-traffic-dev 스킬 §3)
   const ekCols = d.prepare("PRAGMA table_info(extracted_keywords)").all().map(c => c.name);
   if (!ekCols.includes('search_keyword')) d.exec("ALTER TABLE extracted_keywords ADD COLUMN search_keyword TEXT");
+  // 소재 유형(Phase 2) — 방송미디어/신메뉴출시/지역맛집/식문화현상/시즌성 (blog-traffic-dev 스킬 §5)
+  if (!ekCols.includes('content_type')) d.exec("ALTER TABLE extracted_keywords ADD COLUMN content_type TEXT");
 
   // 검색가능성 검증 결과(Phase 1 STEP 4.5) — doc_count: 경쟁 블로그 문서 수(공급 지표), searchable: 0=검증 실패
   const kdsCols = d.prepare("PRAGMA table_info(keyword_daily_stats)").all().map(c => c.name);
@@ -193,8 +195,8 @@ export function getRecentExtractedKeywords(days = 7, limit = 40) {
 export function insertExtractedKeywords(keywords, postId) {
   const d = getDB();
   const stmt = d.prepare(`
-    INSERT INTO extracted_keywords (keyword, category, region, reason, confidence_score, extracted_at, post_id, search_keyword)
-    VALUES (@keyword, @category, @region, @reason, @confidence_score, @extracted_at, @post_id, @search_keyword)
+    INSERT INTO extracted_keywords (keyword, category, region, reason, confidence_score, extracted_at, post_id, search_keyword, content_type)
+    VALUES (@keyword, @category, @region, @reason, @confidence_score, @extracted_at, @post_id, @search_keyword, @content_type)
   `);
 
   const insertMany = d.transaction((rows) => {
@@ -208,6 +210,7 @@ export function insertExtractedKeywords(keywords, postId) {
         extracted_at: kw.extracted_at ?? new Date().toISOString(),
         post_id: postId,
         search_keyword: kw.search_keyword ?? null,
+        content_type: kw.content_type ?? null,
       });
     }
   });
@@ -328,6 +331,7 @@ export function getAllRecentKeywords(days = 7) {
            ek.region,
            ek.reason,
            ek.search_keyword,
+           ek.content_type,
            rp.source_url,
            (SELECT doc_count FROM keyword_daily_stats k2
               WHERE k2.keyword = kds.keyword AND k2.doc_count IS NOT NULL
@@ -337,7 +341,7 @@ export function getAllRecentKeywords(days = 7) {
               ORDER BY k2.date DESC LIMIT 1) as searchable
     FROM keyword_daily_stats kds
     LEFT JOIN (
-      SELECT keyword, category, region, reason, search_keyword, post_id
+      SELECT keyword, category, region, reason, search_keyword, content_type, post_id
       FROM extracted_keywords
       WHERE extracted_at = (
         SELECT MAX(extracted_at) FROM extracted_keywords ek2

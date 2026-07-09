@@ -3,7 +3,7 @@
 > **실행자**: Sonnet (Claude Code). **반드시 Phase 순서대로** 실행한다. Phase를 건너뛰거나 병합하지 마라.
 > **시작 전 필독**: `.claude/skills/trendleading-dev/SKILL.md` (개발 절차) + `.claude/skills/blog-traffic-dev/SKILL.md` (도메인 지식 — 이 설계의 근거).
 > **Phase당 1커밋**. 각 Phase의 "검증" 통과 없이는 커밋하지 않는다.
-> **상태**: Phase 1까지 구현 완료 (Phase 0: 90a9421, Phase 1: 작업 중 — 다음 커밋). Phase 2~4는 미착수.
+> **상태**: Phase 2까지 구현 완료 (Phase 0: 90a9421, Phase 1: 9683c00, Phase 2: 작업 중 — 다음 커밋). Phase 3~4는 미착수.
 
 ## 0. 목표 재정의 (이 문서의 존재 이유)
 

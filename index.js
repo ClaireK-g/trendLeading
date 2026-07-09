@@ -45,10 +45,10 @@ const TEST_POSTS = [
 ];
 
 const MOCK_KEYWORDS = [
-  { keyword: '크룽지', search_keyword: '성수 크룽지', category: '디저트', region: '성수', reason: '크루아상+룽지 합성 디저트로 최근 급부상', confidence_score: 5, co_keywords: ['성수카페', '디저트맛집'] },
-  { keyword: '양쯔깐느', search_keyword: '광화문 양쯔깐느', category: '메뉴', region: '광화문', reason: '설이동과 함께 언급되는 새로운 메뉴', confidence_score: 4, co_keywords: ['설이동', '광화문맛집'] },
-  { keyword: '몽블랑크레페', search_keyword: '연남동 몽블랑크레페', category: '디저트', region: '연남동', reason: '밤크림 크레페 변형으로 SNS 인증 급증', confidence_score: 4, co_keywords: ['연남동카페', '크레페'] },
-  { keyword: '호떡피자', search_keyword: '을지로 호떡피자', category: '메뉴', region: '을지로', reason: '호떡+피자 퓨전 길거리 음식으로 웨이팅 발생', confidence_score: 3, co_keywords: ['을지로맛집'] },
+  { keyword: '크룽지', search_keyword: '성수 크룽지', category: '디저트', region: '성수', reason: '크루아상+룽지 합성 디저트로 최근 급부상', confidence_score: 5, co_keywords: ['성수카페', '디저트맛집'], content_type: '지역맛집' },
+  { keyword: '양쯔깐느', search_keyword: '광화문 양쯔깐느', category: '메뉴', region: '광화문', reason: '설이동과 함께 언급되는 새로운 메뉴', confidence_score: 4, co_keywords: ['설이동', '광화문맛집'], content_type: '신메뉴출시' },
+  { keyword: '몽블랑크레페', search_keyword: '연남동 몽블랑크레페', category: '디저트', region: '연남동', reason: '밤크림 크레페 변형으로 SNS 인증 급증', confidence_score: 4, co_keywords: ['연남동카페', '크레페'], content_type: '식문화현상' },
+  { keyword: '호떡피자', search_keyword: '을지로 호떡피자', category: '메뉴', region: '을지로', reason: '호떡+피자 퓨전 길거리 음식으로 웨이팅 발생', confidence_score: 3, co_keywords: ['을지로맛집'], content_type: '지역맛집' },
 ];
 
 async function main() {
