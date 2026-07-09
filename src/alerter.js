@@ -1,7 +1,7 @@
 // Telegram/Discord webhook notifications
 import axios from 'axios';
 import config from './config.js';
-import { logAlert } from './db.js';
+import { logAlert, getRecentDigestTopKeywords } from './db.js';
 
 export function formatAlertMessage(trendData) {
   const {
@@ -120,11 +120,32 @@ export async function sendDailyDigest(topKeywords) {
 
   // activeDays<3(신규) = 오늘의 황금 소재, 그 이상(지속 노출) = 관찰 중 — 새 소재와 지속 트렌드를 분리
   // 표기한다(blog-traffic-dev 스킬 §4). topKeywords는 이미 finalScore(opportunityScore 반영) 내림차순.
-  const golden = verified.filter(kw => (kw.activeDays ?? 0) < 3).slice(0, 5);
-  const observing = verified.filter(kw => (kw.activeDays ?? 0) >= 3).slice(0, 5);
+  let recentGoldenKeywords = new Set();
+  try {
+    recentGoldenKeywords = getRecentDigestTopKeywords(7);
+  } catch (err) {
+    console.warn('[alerter] 다이제스트 쿨다운 조회 실패 (무시):', err.message);
+  }
+
+  const goldenCandidates = verified.filter(kw => (kw.activeDays ?? 0) < 3);
+  // 최근 7일 내 이미 "황금 소재"로 나갔던 키워드는 쿨다운 — 새 소재에 자리를 양보하고 관찰 중으로 이동
+  const golden = goldenCandidates.filter(kw => !recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase())).slice(0, 5);
+  const cooledDown = goldenCandidates.filter(kw => recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase()));
+  const observing = [...verified.filter(kw => (kw.activeDays ?? 0) >= 3), ...cooledDown]
+    .sort((a, b) => (b.finalScore ?? b.trendScore ?? 0) - (a.finalScore ?? a.trendScore ?? 0))
+    .slice(0, 5);
 
   const goldenRows = golden.map((kw, i) => formatDigestRow(kw, i + 1));
   const observingRows = observing.map((kw, i) => formatDigestRow(kw, i + 1));
+
+  // 오늘 "황금 소재"로 노출된 키워드를 기록 — 다음 7일간 쿨다운 대상이 된다
+  for (const kw of golden) {
+    try {
+      logAlert(kw.keyword, 'digest_top');
+    } catch (err) {
+      console.warn(`[alerter] 다이제스트 쿨다운 기록 실패 (${kw.keyword}):`, err.message);
+    }
+  }
 
   const probeRows = probeSpikes.slice(0, 8).map(s =>
     `  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg}→${s.recentAvg})`

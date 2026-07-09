@@ -229,6 +229,55 @@ export function setSearchability(keyword, date, { docCount = null, searchable = 
   `).run(docCount, searchable === null ? null : (searchable ? 1 : 0), normalized, date);
 }
 
+// 최근 N일 내 언급된 키워드들의 co_keywords를 빈도순으로 집계 — 동적 탐색 쿼리 생성용 (Phase 3)
+export function getRecentTopCoKeywords(days = 3, limit = 4) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const rows = d.prepare(
+    'SELECT co_keywords FROM keyword_daily_stats WHERE date >= ? ORDER BY mention_count DESC LIMIT 30'
+  ).all(cutoffStr);
+
+  const freq = new Map();
+  for (const r of rows) {
+    let arr;
+    try { arr = JSON.parse(r.co_keywords || '[]'); } catch { arr = []; }
+    for (const kw of arr) {
+      if (!kw || kw.length < 2) continue;
+      freq.set(kw, (freq.get(kw) || 0) + 1);
+    }
+  }
+
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([kw]) => kw);
+}
+
+// 최근 N일 내 keyword_daily_stats에 기록이 있는 키워드 집합 — 탐침 풀 활동 여부 확인용 (Phase 3)
+export function getKeywordSpikeHistory(keywords, days = 14) {
+  const d = getDB();
+  if (!keywords.length) return new Set();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const normalized = keywords.map(k => k.trim().toLowerCase());
+  const placeholders = normalized.map(() => '?').join(',');
+  const rows = d.prepare(
+    `SELECT DISTINCT keyword FROM keyword_daily_stats WHERE date >= ? AND keyword IN (${placeholders})`
+  ).all(cutoffStr, ...normalized);
+  return new Set(rows.map(r => r.keyword));
+}
+
+// 최근 N일 내 다이제스트 "황금 소재" 섹션에 이미 노출된 키워드 — 다이제스트 쿨다운용 (Phase 3)
+export function getRecentDigestTopKeywords(days = 7) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const rows = d.prepare(
+    "SELECT DISTINCT keyword FROM alerts_sent WHERE channel = 'digest_top' AND alerted_at >= ?"
+  ).all(cutoff.toISOString());
+  return new Set(rows.map(r => r.keyword));
+}
+
 // ---------------------------------------------------------------------------
 // keyword_daily_stats  — upsert
 // ---------------------------------------------------------------------------
