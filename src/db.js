@@ -278,6 +278,18 @@ export function getRecentDigestTopKeywords(days = 7) {
   return new Set(rows.map(r => r.keyword));
 }
 
+// 최근 N일 내 다이제스트 "데이터랩 급등" 섹션에 이미 노출된 탐침 키워드 — 급등 반복 노출 방지 쿨다운.
+// 데이터랩 급등 판정 윈도(최근 3일 vs 이전 7일)가 롤링이라 한 번의 급등이 며칠씩 재감지되는 것을 막는다.
+export function getRecentProbeSpikeKeywords(days = 3) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const rows = d.prepare(
+    "SELECT DISTINCT keyword FROM alerts_sent WHERE channel = 'probe_spike' AND alerted_at >= ?"
+  ).all(cutoff.toISOString());
+  return new Set(rows.map(r => r.keyword));
+}
+
 // ---------------------------------------------------------------------------
 // keyword_daily_stats  — upsert
 // ---------------------------------------------------------------------------
