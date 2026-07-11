@@ -17,24 +17,26 @@ description: trendLeading(F&B 마이크로 트렌드 감지 파이프라인) 레
 5. **커밋 메시지는 한국어**로, 기존 스타일을 따른다. 예: `스코어 0.0 버그 수정 + 알림 가독성 개선`, `다이제스트에 키워드 reason(맥락 설명) 추가`. 본문에 변경 항목을 `-` 리스트로.
 6. **법률/비용이 걸린 의사결정(유료 API 도입, 스크래핑 정책 등)은 코드로 결정하지 말고 사용자(스폰서 지경)에게 확인**한다.
 
-## 1. 아키텍처 맵 (6단계 파이프라인)
+## 1. 아키텍처 맵 (7단계 파이프라인 — 블로그 소재 발굴)
 
 `pipeline.js runPipeline()`이 오케스트레이터. 순서와 담당 파일:
 
 | STEP | 역할 | 파일 | 핵심 export |
 |---|---|---|---|
-| 1 | 데이터랩 탐침 — PROBE_KEYWORDS 풀의 검색량 급등 선행 감지 | `src/probe.js` | `runProbe()` |
-| 2 | 수집 — 네이버 블로그/뉴스/데이터랩 주력, IG는 기본 off | `src/scraper.js` | `collectDaily()` |
-| 3 | LLM 추출 — Gemini 3단계 하네스 | `src/extractor.js` | `processBatch(posts)` |
+| 1 | 데이터랩 탐침 — PROBE_KEYWORDS 풀 + 최근 7일 추출 키워드 상위 5개(당일 동적 추가)의 검색량 급등 선행 감지 | `src/probe.js` | `runProbe()` |
+| 2 | 수집 — 네이버 블로그/뉴스/데이터랩 주력(방송/미디어 쿼리·동적 쿼리 포함), IG는 기본 off. 크로스데이 URL dedup + 발행 3일 초과 필터 | `src/scraper.js` | `collectDaily()` |
+| 3 | LLM 추출 — Gemini 3단계 하네스. search_keyword/content_type 포함, 최근 7일 기추출 키워드 프롬프트 제외 | `src/extractor.js` | `processBatch(posts)` |
 | 4 | 데이터랩 역검증 — 추출 키워드 검색량 확인 | `src/probe.js` | `verifyWithDatalab(keywords)` |
-| 5 | 스코어링 — Burst Detection + L1~L4 레벨 | `src/scorer.js` | `rankAllKeywords()`, `detectBursts()`, `shouldAlert()` |
-| 6 | 알림 — 텔레그램 다이제스트 | `src/alerter.js` | `sendAlert()`, `sendDailyDigest()` |
+| 4.5 | 검색가능성 검증 — 네이버 블로그 검색으로 실제 검색되는지 + 경쟁 문서 수(doc_count) 측정 | `src/searchability.js` | `verifySearchability(keywords)` |
+| 5 | 스코어링 — Burst Detection + L1~L4 레벨 + opportunityScore(수요÷공급)로 finalScore 랭킹 | `src/scorer.js` | `rankAllKeywords()`, `detectBursts()`, `shouldAlert()` |
+| 6 | 알림 — 텔레그램 "블로그 소재 리포트"(황금 소재/관찰 중/검증 필요 3섹션) | `src/alerter.js` | `sendAlert()`, `sendDailyDigest()` |
 
 공통: `src/db.js`(better-sqlite3, `data/trend.db`), `src/config.js`(env→설정), `src/blacklist.js`, `src/trend-intel.js`(구글뉴스 RSS + 네이버뉴스 헤드라인 → Synthesizer 프롬프트에 주입).
 
 - 탐침 급등 키워드는 `upsertDailyStats(kw, today, 'datalab_probe', [])`로 DB에 누적된다 (트렌드 레벨 산정용).
-- STEP 1·4 실패는 `try/catch`로 **무시하고 계속 진행**한다. 새 STEP을 추가할 때도 부분 실패가 전체를 죽이지 않게 하라.
+- STEP 1·4·4.5 실패는 `try/catch`로 **무시하고 계속 진행**한다. 새 STEP을 추가할 때도 부분 실패가 전체를 죽이지 않게 하라.
 - CLI 진입점은 `index.js` (`run`/`score`/`digest`/`blacklist`/`cron`/`test`).
+- 재설계 배경·근거: `docs/redesign-blog-traffic.md`(Phase 0~4 실행 이력), `.claude/skills/blog-traffic-dev/SKILL.md`(도메인 지식).
 
 ## 2. LLM 추출 하네스 (Generator→Critic→Synthesizer)
 
@@ -44,13 +46,17 @@ description: trendLeading(F&B 마이크로 트렌드 감지 파이프라인) 레
 2. **Critic** (`buildCriticPrompt`): 통계적 착시·기존 유행 변형·추상성 비판. 출력은 `{keyword, verdict: PASS|WARN|REJECT, critique, weaknesses}`. REJECT는 무조건 제거된다.
 3. **Synthesizer** (`buildSynthesizerPrompt`): 뉴스 헤드라인(trend-intel) 컨텍스트와 함께 최종 정제. WARN 생존 키워드는 confidence -1. 실패 시 Generator 출력으로 fallback.
 
-**모든 프롬프트는 "JSON 배열만 출력, 없으면 []"을 강제**하고 `responseMimeType: "application/json"`을 쓴다. 프롬프트를 고쳐도 출력 스키마 필드(`keyword, category, region, reason, confidence_score, co_keywords, freshness_signal, validation_note`)를 바꾸면 db.js `insertExtractedKeywords`와 index.js MOCK_KEYWORDS도 같이 바꿔야 한다.
+**모든 프롬프트는 "JSON 배열만 출력, 없으면 []"을 강제**하고 `responseMimeType: "application/json"`을 쓴다. 프롬프트를 고쳐도 출력 스키마 필드(`keyword, search_keyword, category, region, reason, confidence_score, co_keywords, freshness_signal, validation_note, content_type`)를 바꾸면 db.js `insertExtractedKeywords`/`getAllRecentKeywords`와 index.js MOCK_KEYWORDS도 같이 바꿔야 한다.
+
+- `search_keyword`: 단독 검색으로 의미가 통하는 형태(brand-traffic-dev 스킬 §3). 브랜드/지역 불명확하면 null.
+- `content_type`: Synthesizer 전용 필드. `방송미디어|신메뉴출시|지역맛집|식문화현상|시즌성` 중 하나(blog-traffic-dev 스킬 §5).
 
 **Gemini 무료 티어 제약** (건드릴 때 주의):
 - 모델 폴백 체인: `gemini-2.5-flash` → `gemini-3.5-flash` → `gemini-2.5-flash-lite` (GEMINI_MODELS 순서).
 - 429(rate limit)→15초 대기 재시도, 503(overload)→즉시 다음 모델. 배치 간 `sleep(2000)`.
-- 복수 API 키 로테이션(`getNextApiKey()`): GEMINI_API_KEY, GEMINI_API_KEY_2 라운드로빈.
+- 복수 API 키 로테이션(`getNextApiKey()`): GEMINI_API_KEY ~ GEMINI_API_KEY_5(최대 5개) 라운드로빈.
 - 호출 횟수를 늘리는 변경(배치 축소, 단계 추가)은 RPM 한도 초과 위험 — 먼저 호출 수를 계산해 보라.
+- STEP 3는 최근 7일 기추출 키워드(최대 40개, `getRecentExtractedKeywords`)를 프롬프트 제외 목록으로 주입한다 — 매일 같은 키워드가 반복 보고되는 것을 막는다.
 
 **트렌드 시간 기준: 2~3일.** 월/연 단위 아님. 프롬프트의 신선도 기준을 완화하는 변경은 프로젝트 정체성 훼손 — 하지 마라.
 
@@ -69,8 +75,10 @@ co_keywords (JSON)   → coKeywords (파싱된 배열)
 
 - scorer.js는 `d.mentions`, `d.uniqueAccounts`, `d.coKeywords`, `d.daysAgo`, `d.confidenceScore`를 읽는다. **db.js 반환 형태를 바꾸면 scorer.js가 조용히 0을 계산한다** (과거 버그 d54b9b6).
 - 키워드는 DB 저장 시 `trim().toLowerCase()` 정규화. 조회할 때도 동일 정규화 필수.
-- `getAllRecentKeywords()`는 extracted_keywords를 LEFT JOIN해 `category`, `reason`을 함께 반환 (다이제스트의 `└ reason` 줄에 사용).
+- `getAllRecentKeywords()`는 extracted_keywords를 LEFT JOIN해 `category`, `region`, `reason`, `search_keyword`, `content_type`, 대표 `source_url`(raw_posts 조인)을 반환하고, 상관 서브쿼리로 최신 `doc_count`/`searchable`(keyword_daily_stats)도 붙인다.
+- **`rankAllKeywords()`는 `getAllRecentKeywords()`의 메타를 반드시 다시 병합해야 한다** — `calculateTrendScore(keyword)`는 keyword 문자열만 받아 점수만 계산하고 category/reason 등을 모른다. 과거에 이 병합이 없어서 다이제스트의 `└ reason` 줄이 항상 비어있던 잠재 버그가 있었다(Phase 1에서 수정). 새 메타 필드를 추가하면 `rankAllKeywords()`의 merge 블록도 같이 갱신하라.
 - pipeline↔scraper 경계: post 객체는 `commentsText`/`comments_text`, `sourceUrl`/`source_url` 양쪽 케이스를 모두 허용하도록 `??`로 처리되어 있다. 새 소스 추가 시 `account, caption, source` 필드는 필수.
+- `keyword_daily_stats.doc_count`/`searchable`은 STEP 4.5(`searchability.js`)가 `setSearchability()`로 기록한다. STEP 3(`upsertDailyStats`)가 먼저 당일 행을 만들어둬야 UPDATE가 먹는다 — 순서를 바꾸지 마라.
 
 ## 4. 스코어링 공식 (scorer.js — 숫자 바꾸기 전에 읽어라)
 
@@ -84,6 +92,16 @@ trendScore = burstRatio*0.4 + spreadScore*10*0.25 + acceleration*0.2 + min(coOcc
 - 트렌드 레벨: L1(활동3일+·기간7일+) ~ L4(활동10일+·기간28일+), 미달이면 ⚪관찰중.
 - `shouldAlert`: maxConfidence≥4 AND uniqueAccounts3일≥5 AND trendScore≥3.0 AND 72시간 쿨다운. **이 값들은 config.scoring에도 중복 정의되어 있으나 scorer.js에 하드코딩된 쪽이 실제 동작이다** — 값을 바꿀 땐 양쪽을 맞춰라.
 - 랭킹은 상위 30개 컷 (`rankAllKeywords`).
+
+**황금 키워드 공식 (opportunityScore — blog-traffic-dev 스킬 §1의 구현)**:
+```
+opportunityScore = burstRatio ÷ log10(doc_count + 10)     # doc_count 없으면 0(중립)
+finalScore = trendScore*0.5 + opportunityScore*0.5         # rankAllKeywords의 정렬 기준
+```
+- `trendScore` 공식·`shouldAlert` 임계값 자체는 변경 대상이 아니다(위 규칙 그대로) — opportunityScore는
+  **랭킹 가중(finalScore)에만** 관여하고 알림 발송 여부(`shouldAlert`)에는 관여하지 않는다.
+- 다이제스트는 `activeDays<3`(신규)을 "황금 소재", `activeDays>=3`(지속 노출)을 "관찰 중"으로 분리해
+  표시한다(`alerter.js sendDailyDigest`). 새 소재와 지속 트렌드를 같은 섹션에 섞지 마라.
 
 ## 5. 외부 API 제약 요약
 
@@ -118,6 +136,11 @@ node --check src/수정한파일.js   # 문법 확인 (빠른 1차 체크)
 | 배치 KST 04:00 | Actions cron 지연 감안 (d386750) |
 | shouldAlert 임계값 유지 | 완화 시도했다가 revert됨 (20e2be8). 변경은 사용자 승인 필요 |
 | Generator→Critic→Synthesizer 하네스 | 단일 프롬프트 대비 허위 트렌드(통계 착시) 감소 (80ba9fd) |
+| 블로그 소재 발굴로 목표 재정의 (2026-07) | "트렌드 알림"만으로는 사용자 실사용(블로그 유입) 목적과 어긋남. '언더커버 쉐프 식당' 실증. `docs/redesign-blog-traffic.md` Phase 0~4 |
+| opportunityScore는 랭킹 전용, trendScore/shouldAlert 불변 | 기존 임계값 변경은 사용자 승인 필요 원칙 유지 — 새 지표를 얹되 기존 계약은 안 건드림 |
+| STEP 4.5(검색가능성 검증) 신설 | '콘크리트(디저트)' 사건 — 검색 안 되는 키워드는 리포트 가치 0 |
+| UNIQUE 인덱스 대신 코드 레벨 URL dedup | 기존 DB에 중복 데이터 존재 — 인덱스 생성이 실패함 |
+| 탐침 풀(PROBE_KEYWORDS) 자동 삭제 금지 | 풀 구성은 사용자 결정 사항. 비활성 키워드는 로그로만 보고 |
 
 ## 9. 작업 마무리 체크리스트
 
@@ -127,6 +150,11 @@ node --check src/수정한파일.js   # 문법 확인 (빠른 1차 체크)
 - [ ] `data/trend.db`, `.env`가 diff에 없는가
 - [ ] 한국어 커밋 메시지, 기존 로그 스타일(`[모듈명]` 접두) 유지
 - [ ] 프롬프트/스키마 변경 시 CLAUDE.md·MOCK_KEYWORDS·db insert 동기화
+
+## 관련 문서·스킬
+
+- **blog-traffic-dev 스킬** (`.claude/skills/blog-traffic-dev/SKILL.md`) — 이 파이프라인의 진짜 목표(블로그 방문자 유입)와 황금 키워드 공식, 검색가능형 키워드 규칙. **키워드 추출·스코어링·다이제스트를 만질 때 반드시 함께 적용.**
+- **재설계 설계서** (`docs/redesign-blog-traffic.md`) — 블로그 소재 발굴 파이프라인으로의 전환 계획 (Phase 0~4). 실행 시 Phase 순서 엄수.
 
 ## 관련 프로젝트
 

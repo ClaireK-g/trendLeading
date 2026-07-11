@@ -1,6 +1,7 @@
 // 데이터랩 탐침(Probe) — 세부 키워드 수백 개를 돌려 검색량 급등을 선행 탐지
 import axios from 'axios';
 import config from './config.js';
+import { getRecentExtractedKeywords, getKeywordSpikeHistory } from './db.js';
 
 function getDateStr(daysAgo) {
   const d = new Date();
@@ -37,15 +38,24 @@ export async function runProbe() {
     return [];
   }
 
-  console.log(`[probe] ${PROBE_KEYWORDS.length}개 키워드 탐침 시작...`);
+  // 동적 탐침 — 최근 7일 추출 키워드 상위 5개를 고정 풀에 임시 추가(당일 스캔용, PROBE_KEYWORDS는 불변)
+  let dynamicProbe = [];
+  try {
+    dynamicProbe = getRecentExtractedKeywords(7, 5).filter(kw => !PROBE_KEYWORDS.includes(kw));
+  } catch (err) {
+    console.warn(`[probe] 동적 탐침 키워드 조회 실패 (무시): ${err.message}`);
+  }
+  const probeList = [...PROBE_KEYWORDS, ...dynamicProbe];
+
+  console.log(`[probe] ${probeList.length}개 키워드 탐침 시작 (고정 ${PROBE_KEYWORDS.length} + 동적 ${dynamicProbe.length})...`);
 
   const startDate = getDateStr(14);
   const endDate = getDateStr(0);
   const spikes = [];
 
   // 5개씩 묶어서 배치 요청 (API 제한: 1요청 5그룹)
-  for (let i = 0; i < PROBE_KEYWORDS.length; i += 5) {
-    const batch = PROBE_KEYWORDS.slice(i, i + 5);
+  for (let i = 0; i < probeList.length; i += 5) {
+    const batch = probeList.slice(i, i + 5);
     const keywordGroups = batch.map(kw => ({
       groupName: kw,
       keywords: [kw],
@@ -106,6 +116,18 @@ export async function runProbe() {
   spikes.slice(0, 10).forEach(s =>
     console.log(`  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg} → ${s.recentAvg})`)
   );
+
+  // 고정 탐침 풀(PROBE_KEYWORDS) 중 최근 14일간 한 번도 급등 이력이 없는 키워드 보고.
+  // 풀 교체는 사용자 결정 사항이므로 자동 삭제는 하지 않는다(blog-traffic-dev 스킬 §7).
+  try {
+    const active = getKeywordSpikeHistory(PROBE_KEYWORDS, 14);
+    const inactive = PROBE_KEYWORDS.filter(kw => !active.has(kw.trim().toLowerCase()));
+    if (inactive.length) {
+      console.log(`[probe] 최근 14일간 급등 이력 없음(${inactive.length}개, 풀 교체 검토 대상 — 자동 삭제 안 함): ${inactive.join(', ')}`);
+    }
+  } catch (err) {
+    console.warn(`[probe] 탐침 풀 이력 조회 실패 (무시): ${err.message}`);
+  }
 
   return spikes;
 }

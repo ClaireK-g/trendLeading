@@ -7,9 +7,13 @@
   "scripts": {
     "start": "node index.js run",
     "test": "node index.js test",
-    "cron": "node index.js cron"
+    "cron": "node index.js cron",
+    "agents": "node agents-slack/index.js serve",
+    "agents:discuss": "node agents-slack/index.js discuss"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@slack/bolt": "^4.7.3",
     "axios": "^1.7.0",
     "better-sqlite3": "^11.0.0",
     "cheerio": "^1.2.0",

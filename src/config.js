@@ -4,6 +4,9 @@ export default {
   geminiApiKeys: [
     process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
   ].filter(Boolean),
   groqApiKey: process.env.GROQ_API_KEY,
   // 네이버 블로그/뉴스 검색용 (검색 API 권한 앱)

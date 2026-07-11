@@ -128,14 +128,51 @@ export async function calculateTrendScore(keyword) {
 }
 
 /**
- * Rank all keywords by trend score, return top 30.
+ * 황금 키워드 공식(blog-traffic-dev 스킬 §1): 기회 = 검색 수요(burstRatio) ÷ 콘텐츠 공급(경쟁 문서 수).
+ * doc_count가 없으면(STEP 4.5 스킵/실패) 중립값 0 — 랭킹에 불이익도 이득도 주지 않는다.
+ * 주의: trendScore·shouldAlert의 하드코딩 임계값은 변경 대상이 아니다(스킬 §8) — opportunityScore는
+ * 랭킹 가중(finalScore)에만 쓰고 알림 여부 판정에는 관여하지 않는다.
+ */
+function calculateOpportunityScore(burstRatio, docCount) {
+  if (docCount === null || docCount === undefined) return 0;
+  const supply = Math.log10(docCount + 10);
+  return supply > 0 ? burstRatio / supply : 0;
+}
+
+/**
+ * Rank all keywords by finalScore(trendScore + opportunityScore 가중), return top 30.
  * @returns {Promise<Array>}
  */
 export async function rankAllKeywords() {
   const keywords = await getAllRecentKeywords(7);
+  const metaByKeyword = new Map(keywords.map(k => [k.keyword, k]));
   const scored = await Promise.all(keywords.map(k => calculateTrendScore(k.keyword)));
-  scored.sort((a, b) => b.trendScore - a.trendScore);
-  return scored.slice(0, 30);
+
+  // getAllRecentKeywords의 메타(category/reason/search_keyword/doc_count/searchable/source_url/
+  // content_type)를 calculateTrendScore 결과에 다시 합친다 — 안 그러면 다이제스트가 reason/검색링크를
+  // 못 만든다.
+  const merged = scored.map(s => {
+    const meta = metaByKeyword.get(s.keyword) || {};
+    const docCount = meta.doc_count ?? null;
+    const opportunityScore = calculateOpportunityScore(s.burstRatio, docCount);
+    const finalScore = s.trendScore * 0.5 + opportunityScore * 0.5;
+    return {
+      ...s,
+      category: meta.category ?? null,
+      region: meta.region ?? null,
+      reason: meta.reason ?? null,
+      searchKeyword: meta.search_keyword ?? null,
+      docCount,
+      searchable: meta.searchable === null || meta.searchable === undefined ? null : !!meta.searchable,
+      sourceUrl: meta.source_url ?? null,
+      contentType: meta.content_type ?? null,
+      opportunityScore,
+      finalScore,
+    };
+  });
+
+  merged.sort((a, b) => b.finalScore - a.finalScore);
+  return merged.slice(0, 30);
 }
 
 /**
