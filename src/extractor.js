@@ -4,6 +4,7 @@ import config from "./config.js";
 import { isBlacklisted } from "./blacklist.js";
 import { fetchTrendIntelligence } from "./trend-intel.js";
 import { getRecentExtractedKeywords } from "./db.js";
+import { findCanonical } from "./keyword-canon.js";
 
 let _trendIntel = null;
 
@@ -392,7 +393,34 @@ export async function processBatch(posts) {
   const synthesized = await synthesizeKeywords(afterCritic, criticResult, intel, allText.join('\n'));
   console.log(`[extractor] Synthesizer 완료: ${afterCritic.length}개 → ${synthesized.length}개 최종 통과`);
 
-  return synthesized;
+  // 4단계: 변형 표준화 — 최근 7일 기추출 키워드와 핵심 토큰이 겹치는 변형("우베 (Ube) 디저트" 등)은
+  // 기존 키워드명으로 병합한다. 프롬프트 제외(P0-3)는 표기를 바꾼 변형에 뚫리므로 코드 레벨에서 막는다.
+  // 병합하면 daily stats가 한 키워드로 누적돼 activeDays/쿨다운이 정상 작동한다.
+  let canonPool = [];
+  try {
+    canonPool = getRecentExtractedKeywords(7, 200);
+  } catch (err) {
+    console.warn(`[extractor] 표준화 풀 조회 실패 (무시): ${err.message}`);
+  }
+  const seen = new Set();
+  const canonical = [];
+  for (const kw of synthesized) {
+    const canon = findCanonical(kw.keyword, canonPool);
+    if (canon && canon.trim().toLowerCase() !== (kw.keyword || '').trim().toLowerCase()) {
+      console.log(`[extractor] 변형 표준화: "${kw.keyword}" → "${canon}"`);
+      kw.keyword = canon;
+    }
+    const key = (kw.keyword || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue; // 같은 키워드로 접힌 당일 중복 제거
+    seen.add(key);
+    canonPool.push(kw.keyword); // 당일 내 변형도 서로 병합되도록 풀에 추가
+    canonical.push(kw);
+  }
+  if (canonical.length !== synthesized.length) {
+    console.log(`[extractor] 변형 표준화 완료: ${synthesized.length}개 → ${canonical.length}개 (중복 병합)`);
+  }
+
+  return canonical;
 }
 
 export default { extractKeywords, mergeSimilarKeywords, processBatch };

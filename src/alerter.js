@@ -2,6 +2,7 @@
 import axios from 'axios';
 import config from './config.js';
 import { logAlert, getRecentDigestTopKeywords, getRecentProbeSpikeKeywords } from './db.js';
+import { isVariantOfAny } from './keyword-canon.js';
 
 export function formatAlertMessage(trendData) {
   const {
@@ -131,7 +132,12 @@ export async function sendDailyDigest(topKeywords) {
   // 최근 7일 내 이미 "황금 소재"로 나갔던 키워드는 쿨다운 — 다음날 "관찰 중"으로 되돌리지 않고
   // 리포트에서 제외한다(어제 황금 소재가 오늘 관찰 중에 재등장하는 반복 체감의 주범).
   // 진짜 지속 트렌드면 activeDays>=3이 되는 시점에 관찰 중으로 자연 재진입한다.
-  const golden = goldenCandidates.filter(kw => !recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase())).slice(0, 5);
+  // 완전일치뿐 아니라 핵심 토큰이 겹치는 변형(우베 디저트 vs 우베 (Ube) 디저트)도 쿨다운으로 잡는다
+  const recentGoldenList = [...recentGoldenKeywords];
+  const golden = goldenCandidates.filter(kw =>
+    !recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase()) &&
+    !isVariantOfAny(kw.keyword, recentGoldenList)
+  ).slice(0, 5);
   const observing = verified.filter(kw => (kw.activeDays ?? 0) >= 3)
     .sort((a, b) => (b.finalScore ?? b.trendScore ?? 0) - (a.finalScore ?? a.trendScore ?? 0))
     .slice(0, 5);
