@@ -120,11 +120,42 @@ node --check src/수정한파일.js   # 문법 확인 (빠른 1차 체크)
 - 테스트 실행은 로컬 `data/trend.db`에 목업 데이터를 남긴다. **`data/trend.db` 변경분은 커밋하지 마라** — 이 파일은 GitHub Actions가 매일 `chore: daily DB update` 커밋으로만 갱신한다. 커밋 전 `git status`에서 trend.db가 staged면 제외할 것.
 - DB 직접 확인: `node -e "const D=require('better-sqlite3');const d=new D('data/trend.db');console.log(d.prepare('SELECT * FROM keyword_daily_stats ORDER BY date DESC LIMIT 20').all())"`
 
+**실제 전체 파이프라인 검증(수집·LLM·검색가능성·알림 포함)은 로컬이 아니라 GitHub Actions로 한다.**
+`node index.js run`은 실키가 필요하고, 원격/웹 세션에는 `.env`가 없어 GEMINI_API_KEY 없음으로 즉시
+종료된다(index.js `run` 가드). 실제 검증은 §7의 `workflow_dispatch` 트리거 → job 로그 확인이다.
+로그에서 각 기능이 실제로 발동했는지 아래 마커로 확인하라(2026-07-11 run #32에서 전부 확인됨):
+
+| 기능 | 로그 마커 |
+|---|---|
+| P0-1 크로스데이 dedup | `기수집 URL N건 스킵` |
+| P0-2 발행일 필터 | `발행 3일 초과 N건 제외` |
+| P0-3 기추출 제외 | `최근 7일 기추출 키워드 N개 프롬프트 제외 목록으로 주입` |
+| P1 STEP 4.5 | `[STEP 4.5] 검색가능성 검증` + `검색 불가/의심 키워드 N건 강등` |
+| P3 동적 쿼리/탐침 | `동적 쿼리 추가: ...` + `N개 키워드 탐침 (고정 X + 동적 Y)` |
+| 3단 하네스 | `Generator 완료: N개 후보` → `Critic 완료: ... REJECT` → `Synthesizer 완료` |
+
 ## 7. GitHub Actions / 운영
 
 - `trend-pipeline.yml`: cron `0 19 * * *` = **KST 04:00** (Actions 지연 감안해 05:00에서 앞당김 — CLAUDE.md의 "05:00/0 20"은 구버전 표기이니 workflow 파일이 진실). 실패해도 `if: always()`로 DB 커밋. 실패 시 텔레그램 에러 알림.
 - `keepalive.yml`: 매주 월요일 빈 커밋으로 60일 비활성 방지.
 - 시크릿 추가가 필요한 변경이면 사용자가 GitHub Secrets에 등록해야 함을 알려라. `.env`는 절대 커밋 금지.
+
+**실제 실행 환경은 GitHub Actions뿐이다** (모든 실키가 Secrets에만 있음). Claude Code 원격/웹 세션은
+매번 새 컨테이너로 클론되고 `.env`가 없으므로 로컬 `node index.js run`은 항상 실패한다 — "키가
+사라졌다"는 오해 금지(애초에 세션에 온 적 없음). 사용자에게 로컬 `.env`를 만들라고 하기 전에,
+**대부분의 검증은 Actions로 충분함**을 먼저 안내하라.
+
+- **수동 실행(온디맨드 배치)**: GitHub MCP `actions_run_trigger`(method `run_workflow`,
+  workflow_id `trend-pipeline.yml`, ref `main`)로 트리거 → `actions_list`(list_workflow_runs, event
+  `workflow_dispatch`)로 run_id 확인 → `get_job_logs`(return_content)로 로그 확인. 완료 감시는
+  런 상태를 폴링하는 Monitor로. (2026-07-11에 이 경로로 재설계 후 첫 배치 성공, digest 발송 확인.)
+- **Secrets 현황(2026-07-11 로그 기준)**: `GEMINI_API_KEY`만 실제 등록됨. `GEMINI_API_KEY_2`~`_5`는
+  **비어 있음**. 코드는 최대 5키 로테이션을 지원하지만, 늘리려면 (1) GitHub Secrets에 값 추가 +
+  (2) `trend-pipeline.yml`의 `env:`에 `GEMINI_API_KEY_N: ${{ secrets.GEMINI_API_KEY_N }}` 줄 추가
+  둘 다 필요하다. workflow env에 안 넣으면 Secrets에 있어도 런타임에 안 보인다.
+- **탐침 풀 건강도**: 로그의 `최근 14일간 급등 이력 없음(N개 ...)`가 죽은 키워드를 보고한다.
+  2026-07-11엔 29개 중 26개가 무반응 — 풀 리프레시 후보. **자동 삭제는 하지 말고**(스킬 §8) 사용자에게
+  최근 트렌드 기반 교체를 제안하라.
 
 ## 8. 의사결정 히스토리 (다시 논쟁하지 말 것)
 
@@ -141,6 +172,7 @@ node --check src/수정한파일.js   # 문법 확인 (빠른 1차 체크)
 | STEP 4.5(검색가능성 검증) 신설 | '콘크리트(디저트)' 사건 — 검색 안 되는 키워드는 리포트 가치 0 |
 | UNIQUE 인덱스 대신 코드 레벨 URL dedup | 기존 DB에 중복 데이터 존재 — 인덱스 생성이 실패함 |
 | 탐침 풀(PROBE_KEYWORDS) 자동 삭제 금지 | 풀 구성은 사용자 결정 사항. 비활성 키워드는 로그로만 보고 |
+| 실제 파이프라인 검증은 로컬 아닌 GitHub Actions로 | 원격 세션엔 실키가 없음. 2026-07-11 재설계 후 workflow_dispatch로 첫 배치 성공 검증(P0~P3 전 기능 로그 확인) |
 
 ## 9. 작업 마무리 체크리스트
 

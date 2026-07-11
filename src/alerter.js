@@ -1,7 +1,8 @@
 // Telegram/Discord webhook notifications
 import axios from 'axios';
 import config from './config.js';
-import { logAlert, getRecentDigestTopKeywords } from './db.js';
+import { logAlert, getRecentDigestTopKeywords, getRecentProbeSpikeKeywords } from './db.js';
+import { isVariantOfAny } from './keyword-canon.js';
 
 export function formatAlertMessage(trendData) {
   const {
@@ -128,10 +129,16 @@ export async function sendDailyDigest(topKeywords) {
   }
 
   const goldenCandidates = verified.filter(kw => (kw.activeDays ?? 0) < 3);
-  // 최근 7일 내 이미 "황금 소재"로 나갔던 키워드는 쿨다운 — 새 소재에 자리를 양보하고 관찰 중으로 이동
-  const golden = goldenCandidates.filter(kw => !recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase())).slice(0, 5);
-  const cooledDown = goldenCandidates.filter(kw => recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase()));
-  const observing = [...verified.filter(kw => (kw.activeDays ?? 0) >= 3), ...cooledDown]
+  // 최근 7일 내 이미 "황금 소재"로 나갔던 키워드는 쿨다운 — 다음날 "관찰 중"으로 되돌리지 않고
+  // 리포트에서 제외한다(어제 황금 소재가 오늘 관찰 중에 재등장하는 반복 체감의 주범).
+  // 진짜 지속 트렌드면 activeDays>=3이 되는 시점에 관찰 중으로 자연 재진입한다.
+  // 완전일치뿐 아니라 핵심 토큰이 겹치는 변형(우베 디저트 vs 우베 (Ube) 디저트)도 쿨다운으로 잡는다
+  const recentGoldenList = [...recentGoldenKeywords];
+  const golden = goldenCandidates.filter(kw =>
+    !recentGoldenKeywords.has((kw.keyword || '').trim().toLowerCase()) &&
+    !isVariantOfAny(kw.keyword, recentGoldenList)
+  ).slice(0, 5);
+  const observing = verified.filter(kw => (kw.activeDays ?? 0) >= 3)
     .sort((a, b) => (b.finalScore ?? b.trendScore ?? 0) - (a.finalScore ?? a.trendScore ?? 0))
     .slice(0, 5);
 
@@ -147,9 +154,29 @@ export async function sendDailyDigest(topKeywords) {
     }
   }
 
-  const probeRows = probeSpikes.slice(0, 8).map(s =>
+  // 데이터랩 급등 쿨다운 — 최근 3일 내 이미 리포트한 급등 키워드는 제외(롤링 윈도 재감지 반복 방지)
+  let recentProbeSpikes = new Set();
+  try {
+    recentProbeSpikes = getRecentProbeSpikeKeywords(3);
+  } catch (err) {
+    console.warn('[alerter] 탐침 쿨다운 조회 실패 (무시):', err.message);
+  }
+  const freshSpikes = probeSpikes
+    .filter(s => !recentProbeSpikes.has((s.keyword || '').trim().toLowerCase()))
+    .slice(0, 8);
+
+  const probeRows = freshSpikes.map(s =>
     `  ${s.signal} ${s.keyword}: +${s.changeRate}% (${s.prevAvg}→${s.recentAvg})`
   );
+
+  // 오늘 리포트한 급등 키워드 기록 — 다음 3일간 쿨다운 대상
+  for (const s of freshSpikes) {
+    try {
+      logAlert(s.keyword, 'probe_spike');
+    } catch (err) {
+      console.warn(`[alerter] 탐침 쿨다운 기록 실패 (${s.keyword}):`, err.message);
+    }
+  }
 
   // 검증 필요 섹션 — 검색 결과 없음/동음이의 오염 의심 (수동 확인 필요)
   const verifyRows = needsVerification.slice(0, 5).map(kw =>
@@ -200,7 +227,7 @@ export async function sendDailyDigest(topKeywords) {
 
   sections.push(
     '',
-    `총 ${goldenRows.length + observingRows.length + probeSpikes.length}개 시그널 감지`,
+    `총 ${goldenRows.length + observingRows.length + probeRows.length}개 시그널 감지`,
     '🔴5+ 🟠3.5+ 🟡2.5+ 🟢1+ ⚪미약',
   );
 
