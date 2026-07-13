@@ -13,6 +13,51 @@ function timestamp() {
 }
 
 /**
+ * 키워드의 실제 출처 게시물을 본문 매칭으로 찾는다. 과거엔 배열 인덱스(i번째 키워드→i번째 게시물)로
+ * 연결해 다이제스트 "📰 근거" 링크가 무관한 글을 가리켰다 — 키워드는 LLM 3단계에서 병합·재정렬되므로
+ * 순서 대응이 성립하지 않는다. 확신 있는 매칭이 없으면 -1을 반환한다(틀린 링크보다 링크 없음이 낫다).
+ * @param {Object} kw 추출 키워드 객체
+ * @param {string[]} postTexts 게시물별 소문자 본문(caption+comments)
+ * @returns {number} 매칭된 posts 배열 인덱스, 없으면 -1
+ */
+function findSourcePostIndex(kw, postTexts) {
+  // 1) keyword/search_keyword가 본문에 그대로 등장하는 게시물
+  const exactTerms = [kw.keyword, kw.search_keyword]
+    .map(t => (t || '').trim().toLowerCase())
+    .filter(t => t.length >= 2);
+  for (const term of exactTerms) {
+    const idx = postTexts.findIndex(x => x.includes(term));
+    if (idx !== -1) return idx;
+  }
+
+  // 2) freshness_signal(원문 인용)이 등장하는 게시물
+  const signal = (kw.freshness_signal || '').replace(/["'“”…]/g, '').trim().toLowerCase();
+  if (signal.length >= 8) {
+    const probe = signal.slice(0, 20);
+    const idx = postTexts.findIndex(x => x.includes(probe));
+    if (idx !== -1) return idx;
+  }
+
+  // 3) 키워드 토큰이 가장 많이 겹치는 게시물 (토큰 절반 이상 일치할 때만 — 우연 일치 방지)
+  const tokens = [...new Set(exactTerms.flatMap(t => t.split(/[\s()（）/]+/)))]
+    .filter(t => t.length >= 2);
+  if (tokens.length) {
+    let best = -1;
+    let bestScore = 0;
+    postTexts.forEach((x, i) => {
+      const score = tokens.reduce((s, t) => s + (x.includes(t) ? 1 : 0), 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    });
+    if (best !== -1 && bestScore >= Math.ceil(tokens.length / 2)) return best;
+  }
+
+  return -1;
+}
+
+/**
  * Insert posts into DB, extract keywords, update daily stats.
  * Shared logic for runPipeline and runWithLocalData.
  */
@@ -36,18 +81,27 @@ async function ingestAndExtract(posts) {
   // Extract keywords via LLM
   const keywords = await extractor.processBatch(posts);
 
-  // Build account list from source posts for unique_accounts tracking
-  const postAccounts = posts.map(p => p.account).filter(Boolean);
+  // 출처 매칭용 게시물 본문 (소문자 정규화)
+  const postTexts = posts.map(p =>
+    `${p.caption || ''} ${p.commentsText ?? p.comments_text ?? ''}`.toLowerCase()
+  );
 
-  // Insert extracted keywords and update daily stats
+  // Insert extracted keywords and update daily stats — 출처 게시물은 본문 매칭으로 연결
+  let unmatched = 0;
   for (let i = 0; i < keywords.length; i++) {
     const kw = keywords[i];
-    const postId = postIds[Math.min(i, postIds.length - 1)] ?? null;
+    const srcIdx = findSourcePostIndex(kw, postTexts);
+    const postId = srcIdx !== -1 ? postIds[srcIdx] : null;
     insertExtractedKeywords([kw], postId);
+    if (srcIdx === -1) unmatched++;
 
     const coKeywords = kw.co_keywords || [];
-    const account = postAccounts[i % postAccounts.length] || `source_${i}`;
+    // unique_accounts 집계용 계정도 실제 출처 게시물 기준 (매칭 실패 시 합성 계정)
+    const account = (srcIdx !== -1 && posts[srcIdx].account) || `source_${i}`;
     upsertDailyStats(kw.keyword, today, account, coKeywords);
+  }
+  if (unmatched) {
+    console.log(`[pipeline] 출처 게시물 미매칭 키워드 ${unmatched}건 — 근거 링크 없이 저장`);
   }
 
   return keywords;
