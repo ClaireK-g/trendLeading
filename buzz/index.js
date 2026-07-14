@@ -45,8 +45,10 @@ async function main() {
       console.log(`[buzz:test] 타깃 ${targets.length}개 로드`);
 
       // 목업 3일치 버즈량 시딩 — 증감 배율 계산 검증 (BZ-1 DoD)
-      const mockTarget = targets[0];
-      if (mockTarget) {
+      // 실제 타깃(targets.json) 데이터를 오염시키지 않도록 전용 테스트 타깃을 쓴다.
+      // 여기서 심는 목업 행은 data/buzz.db에 남으므로, 테스트 후 buzz.db 변경분은 커밋하지 말 것.
+      const mockTarget = { id: '__test-target', name: '테스트 타깃 (목업 전용)' };
+      {
         const mockVolumes = [10, 20, 40]; // [그제, 어제, 오늘]
         mockVolumes.forEach((volume, i) => {
           const daysAgo = mockVolumes.length - 1 - i;
@@ -155,7 +157,8 @@ async function main() {
         }
       }
 
-      const message = formatReport(targets);
+      // 실제 타깃(데이터 없음 → 빈 지표)과 목업 타깃(전 섹션 채움)을 함께 렌더해 포맷 검증
+      const message = formatReport([...targets, mockTarget]);
       console.log('\n[buzz:test] 생성된 리포트 미리보기:\n');
       console.log(message);
       console.log('\n[buzz:test] 목업 테스트 완료');

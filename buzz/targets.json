@@ -1,12 +1,12 @@
 {
   "targets": [
     {
-      "id": "example-target",
-      "name": "예시 타깃 (실제 타깃으로 교체하세요)",
-      "queries": ["예시 검색어"],
+      "id": "naengteol",
+      "name": "냉장고 털기 (냉털)",
+      "queries": ["냉장고 털기", "냉털", "저메추 냉털"],
       "exclude": [],
       "competitors": [],
-      "datalabGroup": "예시 검색어"
+      "datalabGroup": "냉털"
     }
   ]
 }
