@@ -103,7 +103,7 @@ export function formatReport(targets) {
   const time = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
 
   const lines = [
-    '📊 buzzAnalysis 화제성 리포트',
+    '🔍 타깃 추적 관찰',
     '━━━━━━━━━━━━━━━━━━━━━━',
     `📅 ${date} ${time}`,
     '',
