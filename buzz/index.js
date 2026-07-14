@@ -5,7 +5,7 @@ import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
 import { formatReport } from './reporter.js';
 import { initDB, upsertDailyStat } from './db.js';
-import { computeVolumeMetrics } from './metrics.js';
+import { computeVolumeMetrics, computeChannelShare } from './metrics.js';
 
 const BANNER = `
 ======================================================
@@ -64,6 +64,25 @@ async function main() {
         console.log(`\n[buzz:test] "${mockTarget.name}" 버즈량 지표 (목업 10→20→40):`);
         console.log(`  오늘 ${vol.todayVolume}건 / 전일비 ${vol.vsYesterday?.toFixed(2)}x / 주평균비 ${vol.vs7dayAvg?.toFixed(2)}x`);
         console.log(`  스파크라인: ${vol.sparkline}`);
+
+        // 목업 채널별 분포 시딩 — 비율 합 100% ±1, 급변(±15%p) 화살표 로직 검증 (BZ-2 DoD)
+        const daysAgoDate = (n) => {
+          const d = new Date();
+          d.setDate(d.getDate() - n);
+          return d.toISOString().slice(0, 10);
+        };
+        upsertDailyStat({ target: mockTarget.id, date: daysAgoDate(2), channel: 'cafe', volume: 30, totalHint: 3000 });
+        upsertDailyStat({ target: mockTarget.id, date: daysAgoDate(4), channel: 'news', volume: 15, totalHint: 1500 });
+        upsertDailyStat({ target: mockTarget.id, date: daysAgoDate(10), channel: 'blog', volume: 50, totalHint: 5000 });
+        upsertDailyStat({ target: mockTarget.id, date: daysAgoDate(11), channel: 'cafe', volume: 45, totalHint: 4500 });
+        upsertDailyStat({ target: mockTarget.id, date: daysAgoDate(12), channel: 'news', volume: 5, totalHint: 500 });
+
+        const shares = computeChannelShare(mockTarget.id);
+        const shareSum = shares.reduce((s, c) => s + c.share, 0);
+        console.log(`\n[buzz:test] "${mockTarget.name}" 채널 분포 (비율 합 ${shareSum.toFixed(1)}%):`);
+        for (const s of shares) {
+          console.log(`  ${s.label}: ${s.share.toFixed(1)}% (전주 대비 ${s.deltaPP >= 0 ? '+' : ''}${s.deltaPP.toFixed(1)}%p) ${s.arrow}`);
+        }
       }
 
       const message = formatReport(targets);

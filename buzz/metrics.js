@@ -61,3 +61,44 @@ export function computeVolumeMetrics(targetId, days = 14) {
     sparkline: sparkline(series.map((d) => d.volume)),
   };
 }
+
+const CHANNEL_LABELS = { blog: '블로그', news: '뉴스', cafe: '카페' };
+
+// 최근 7일 vs 이전 7일 채널별 volume 비중. 전주 대비 ±15%p 이상 변화 시 화살표 표시.
+// (docs/buzz-analysis-design.md §4 BZ-2). datalab은 단위가 달라 제외.
+export function computeChannelShare(targetId, days = 7) {
+  const rows = getDailyStatsForTarget(targetId, days * 2);
+  const recentStart = dateStr(days - 1);
+  const prevStart = dateStr(days * 2 - 1);
+
+  const recentByChannel = {};
+  const prevByChannel = {};
+
+  for (const r of rows) {
+    if (r.channel === 'datalab') continue;
+    if (r.date >= recentStart) {
+      recentByChannel[r.channel] = (recentByChannel[r.channel] || 0) + r.volume;
+    } else if (r.date >= prevStart) {
+      prevByChannel[r.channel] = (prevByChannel[r.channel] || 0) + r.volume;
+    }
+  }
+
+  const recentTotal = Object.values(recentByChannel).reduce((s, v) => s + v, 0);
+  const prevTotal = Object.values(prevByChannel).reduce((s, v) => s + v, 0);
+  const channels = [...new Set([...Object.keys(recentByChannel), ...Object.keys(prevByChannel)])];
+
+  return channels
+    .map((channel) => {
+      const share = recentTotal > 0 ? ((recentByChannel[channel] || 0) / recentTotal) * 100 : 0;
+      const prevShare = prevTotal > 0 ? ((prevByChannel[channel] || 0) / prevTotal) * 100 : 0;
+      const deltaPP = share - prevShare;
+      return {
+        channel,
+        label: CHANNEL_LABELS[channel] || channel,
+        share,
+        deltaPP,
+        arrow: Math.abs(deltaPP) >= 15 ? (deltaPP > 0 ? '↑' : '↓') : '',
+      };
+    })
+    .sort((a, b) => b.share - a.share);
+}
