@@ -4,3 +4,4 @@ node_modules/
 *.db-shm
 *.db-wal
 !data/trend.db
+!data/buzz.db

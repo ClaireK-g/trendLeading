@@ -55,6 +55,26 @@ TELEGRAM_CHAT_ID=
 - DB를 레포에 커밋하여 영구 보관
 - keepalive.yml로 60일 비활성 방지
 
+## buzzAnalysis (화제성 분석 데일리 리포팅)
+사용자가 지정한 타깃(브랜드/제품)의 버즈량·감성·연관어·채널분포를 매일 텔레그램으로 리포트하는
+**완전 격리된 별도 모듈**. `buzz/` 디렉토리에만 존재하며 `src/`를 import하지 않고, 전용 DB
+(`data/buzz.db`)와 전용 워크플로(`buzz-analysis.yml`, KST 07:00)를 쓴다. 실행: `node buzz/index.js run`
+/ `test`. 타깃은 `buzz/targets.json`에 사용자가 직접 등록. 설계·구현 순서(BZ-0~BZ-7)는
+`docs/buzz-analysis-design.md` 참고.
+
+## 배포 정책 (병합·검증 — 항상 적용, 매번 되묻지 말 것)
+작업이 로컬 검증(관련 `node .../index.js test` 통과 + 회귀 확인 + `.env`·테스트 산물 DB가 diff에
+없음 확인)을 마치면, **사용자에게 다시 묻지 말고**:
+1. 작업 브랜치를 **main에 병합**한다(PR 생성 후 병합, 또는 직접 병합 — 상황에 맞게 선택).
+2. 병합 직후 해당 모듈의 GitHub Actions 워크플로를 **workflow_dispatch로 1회 수동 실행**해
+   실키 기준 테스트 배치를 돌린다(로컬 test는 무키 목업일 뿐 실제 검증이 아님 — 각 모듈 스킬의
+   "실제 파이프라인 검증은 GitHub Actions로" 원칙과 동일).
+3. 실행 로그에서 실패가 없는지 확인하고 결과를 요약 보고한다. 실패 시 원인 조사 후 수정 —
+   조용히 무시하지 않는다.
+이 정책은 이 레포의 세 파이프라인(trendLeading 본체 `src/`, buzzAnalysis `buzz/`, hot10 `hot10/`)
+모두에 동일하게 적용된다. 단, 임계값 변경·타깃 등록·유료 API 도입 등 **사용자 판단이 필요한
+결정**은 이 정책과 별개로 여전히 사용자에게 확인한다(§8/§6 의사결정 히스토리 참고).
+
 ## 관련 프로젝트
 - **techLeading** (github.com/ClaireK-g/techLeading) — 기술 트렌드 감지 (동일 구조, HN/PH 주력)
 

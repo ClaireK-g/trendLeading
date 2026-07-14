@@ -1,0 +1,12 @@
+{
+  "targets": [
+    {
+      "id": "naengteol",
+      "name": "냉장고 털기 (냉털)",
+      "queries": ["냉장고 털기", "냉털", "저메추 냉털"],
+      "exclude": [],
+      "competitors": [],
+      "datalabGroup": "냉털"
+    }
+  ]
+}
