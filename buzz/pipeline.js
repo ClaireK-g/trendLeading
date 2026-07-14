@@ -4,7 +4,9 @@ import { initDB, getPostChannelCounts, updateCleanVolume } from './db.js';
 import { loadTargets } from './targets.js';
 import { collectDaily } from './collector.js';
 import { cleanDaily } from './cleaner.js';
+import { analyzeDaily } from './analyzer.js';
 import { sendReport } from './reporter.js';
+import config from './config.js';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -39,7 +41,18 @@ export async function runBuzzPipeline() {
     console.error('[buzz:pipeline] STEP 3 정제 실패 (무시하고 계속 진행):', err.message);
   }
 
-  // STEP 4~5(질적분석/스파이크 등 지표산출 세부)는 BZ-4~BZ-6에서 순서대로 추가된다.
+  // STEP 4: 질적 분석(감성) — Gemini 키가 없으면 스킵(fail-open)
+  try {
+    if (config.geminiApiKeys.length) {
+      await analyzeDaily(targets, todayStr());
+    } else {
+      console.warn('[buzz:pipeline] GEMINI_API_KEY 미설정 → STEP 4 감성 분석 스킵');
+    }
+  } catch (err) {
+    console.error('[buzz:pipeline] STEP 4 감성 분석 실패 (무시하고 계속 진행):', err.message);
+  }
+
+  // STEP 5(연관어/스파이크 등 지표산출 세부)는 BZ-5~BZ-6에서 순서대로 추가된다.
 
   // STEP 6: 리포트 발송
   const result = await sendReport(targets);

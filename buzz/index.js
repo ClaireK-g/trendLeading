@@ -4,8 +4,8 @@
 import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
 import { formatReport } from './reporter.js';
-import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts } from './db.js';
-import { computeVolumeMetrics, computeChannelShare } from './metrics.js';
+import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts, updateSentimentCounts, setPostSentiment, getPostByUrl } from './db.js';
+import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics } from './metrics.js';
 import { cleanTargetPosts } from './cleaner.js';
 
 const BANNER = `
@@ -100,6 +100,24 @@ async function main() {
 
         const postCounts = getPostChannelCounts(mockTarget.id, today);
         console.log('[buzz:test] 채널별 클린/노이즈 게시물 수:', postCounts);
+
+        // 목업 감성 리스크 시나리오 — 오늘 부정 급증, 어제는 평온 (BZ-4 DoD, 키 없이 검증)
+        const yesterday = (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          return d.toISOString().slice(0, 10);
+        })();
+        updateSentimentCounts(mockTarget.id, today, 'blog', { pos: 5, neg: 8, neu: 2 });
+        updateSentimentCounts(mockTarget.id, yesterday, 'blog', { pos: 10, neg: 1, neu: 9 });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://negative.example.com/1', title: '예시 타깃 위생 논란 터졌다', description: '이물질 발견 후기 다수', publishedAt: today, collectedAt: nowIso });
+        const negPost = getPostByUrl(mockTarget.id, 'https://negative.example.com/1');
+        if (negPost) setPostSentiment(negPost.id, 'negative');
+
+        const sent = computeSentimentMetrics(mockTarget.id);
+        console.log(
+          `\n[buzz:test] "${mockTarget.name}" 감성 지표: 😊 ${sent.posRatio.toFixed(1)}% 😐 ${sent.neuRatio.toFixed(1)}% 😡 ${sent.negRatio.toFixed(1)}% ` +
+          `(전일 대비 +${sent.negDeltaPP.toFixed(1)}%p) → 리스크: ${sent.isRisk ? '🚨 감지' : '없음'}`
+        );
       }
 
       const message = formatReport(targets);

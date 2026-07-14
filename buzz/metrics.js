@@ -1,5 +1,6 @@
 // buzz/metrics.js — STEP 5 지표 산출. docs/buzz-analysis-design.md §4 BZ-1(버즈량 증감·스파크라인)
 import { getDailyStatsForTarget, getNoiseCountForDate } from './db.js';
+import config from './config.js';
 
 const SPARK_BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -104,4 +105,44 @@ export function computeChannelShare(targetId, days = 7) {
       };
     })
     .sort((a, b) => b.share - a.share);
+}
+
+// 날짜 하나의 채널 합산 감성 카운트(datalab 제외)
+function sumSentimentForDate(rows, date) {
+  let pos = 0, neg = 0, neu = 0;
+  for (const r of rows) {
+    if (r.channel === 'datalab' || r.date !== date) continue;
+    pos += r.posCount || 0;
+    neg += r.negCount || 0;
+    neu += r.neuCount || 0;
+  }
+  const total = pos + neg + neu;
+  return { pos, neg, neu, total };
+}
+
+// 오늘 감성 비율 + 전일 대비 부정 비율 급변 리스크 판정 (docs/buzz-analysis-design.md §4 BZ-4).
+// 임계값은 config.scoring에만 정의 — 변경은 사용자 확인 후(본체 shouldAlert 원칙과 동일).
+export function computeSentimentMetrics(targetId) {
+  const rows = getDailyStatsForTarget(targetId, 14);
+  const today = sumSentimentForDate(rows, dateStr(0));
+  const yesterday = sumSentimentForDate(rows, dateStr(1));
+
+  const negRatioToday = today.total > 0 ? today.neg / today.total : 0;
+  const negRatioYesterday = yesterday.total > 0 ? yesterday.neg / yesterday.total : 0;
+  const negDeltaPP = (negRatioToday - negRatioYesterday) * 100;
+
+  const isRisk =
+    today.total > 0 &&
+    negRatioToday >= config.scoring.riskNegativeRatio &&
+    today.neg >= config.scoring.riskNegativeMinCount &&
+    negDeltaPP >= config.scoring.riskNegativeDeltaPP;
+
+  return {
+    ...today,
+    posRatio: today.total > 0 ? (today.pos / today.total) * 100 : 0,
+    negRatio: negRatioToday * 100,
+    neuRatio: today.total > 0 ? (today.neu / today.total) * 100 : 0,
+    negDeltaPP,
+    isRisk,
+  };
 }

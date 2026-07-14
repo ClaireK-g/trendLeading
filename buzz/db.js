@@ -174,3 +174,38 @@ export function updateCleanVolume(target, date, channel, volume) {
     UPDATE buzz_daily_stats SET volume = ? WHERE target = ? AND date = ? AND channel = ?
   `).run(volume, target, date, channel);
 }
+
+export function getPostByUrl(targetId, url) {
+  const d = getDB();
+  return d.prepare('SELECT * FROM buzz_posts WHERE target = ? AND url = ?').get(targetId, url) || null;
+}
+
+// ---------------------------------------------------------------------------
+// 감성(STEP 4 analyzer.js)
+// ---------------------------------------------------------------------------
+export function setPostSentiment(id, sentiment) {
+  const d = getDB();
+  d.prepare('UPDATE buzz_posts SET sentiment = ? WHERE id = ?').run(sentiment, id);
+}
+
+// STEP 2가 미리 만들어둔 (target,date,channel) 행이 있어야 반영된다(없으면 조용히 무시 — fail-open,
+// src/db.js setSearchability()와 동일 순서 의존성).
+export function updateSentimentCounts(target, date, channel, { pos = 0, neg = 0, neu = 0 } = {}) {
+  const d = getDB();
+  d.prepare(`
+    UPDATE buzz_daily_stats SET pos_count = ?, neg_count = ?, neu_count = ?
+    WHERE target = ? AND date = ? AND channel = ?
+  `).run(pos, neg, neu, target, date, channel);
+}
+
+// 리스크 감지 시 리포트에 붙일 대표 부정 게시물 1건
+export function getRepresentativeNegativePost(targetId, date) {
+  const d = getDB();
+  const row = d.prepare(`
+    SELECT url, title FROM buzz_posts
+    WHERE target = ? AND sentiment = 'negative' AND is_noise = 0
+      AND (published_at = ? OR (published_at IS NULL AND collected_at LIKE ?))
+    ORDER BY collected_at DESC LIMIT 1
+  `).get(targetId, date, `${date}%`);
+  return row || null;
+}

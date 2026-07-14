@@ -2,7 +2,12 @@
 // 각 지표 섹션(버즈량→BZ-1, 채널분포→BZ-2, 감성→BZ-4, 연관어→BZ-5, 스파이크→BZ-6)이
 // 슬라이스 순서대로 하나씩 추가된다 (docs/buzz-analysis-design.md §4, §BZ-7 최종 포맷 참고).
 import { sendTelegram } from './lib/telegram.js';
-import { computeVolumeMetrics, computeChannelShare } from './metrics.js';
+import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics } from './metrics.js';
+import { getRepresentativeNegativePost } from './db.js';
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 // null(비교 기준 없음=신규)/0/일반 배율을 사람이 읽는 표기로 변환
 function formatRatio(r) {
@@ -18,9 +23,15 @@ function formatChannelShareLine(shares) {
   return `채널: ${parts.join(' · ')}`;
 }
 
+function formatSentimentLine(sent) {
+  if (!sent.total) return null;
+  return `감성: 😊 ${Math.round(sent.posRatio)}% · 😐 ${Math.round(sent.neuRatio)}% · 😡 ${Math.round(sent.negRatio)}%`;
+}
+
 function formatTargetBlock(target) {
   const vol = computeVolumeMetrics(target.id);
   const shares = computeChannelShare(target.id);
+  const sent = computeSentimentMetrics(target.id);
   const lines = [`■ ${target.name}`];
 
   const volumeNotes = [];
@@ -31,7 +42,32 @@ function formatTargetBlock(target) {
 
   const shareLine = formatChannelShareLine(shares);
   if (shareLine) lines.push(shareLine);
+
+  const sentLine = formatSentimentLine(sent);
+  if (sentLine) lines.push(sentLine);
+
   return lines.join('\n');
+}
+
+// 부정 급증 리스크 타깃을 리포트 최상단에 승격 (docs/buzz-analysis-design.md §4 BZ-4)
+function formatRiskSection(targets) {
+  const today = todayStr();
+  const riskLines = [];
+
+  for (const target of targets) {
+    const sent = computeSentimentMetrics(target.id);
+    if (!sent.isRisk) continue;
+
+    riskLines.push(`■ ${target.name}: 부정 ${Math.round(sent.negRatio)}% (전일 대비 +${sent.negDeltaPP.toFixed(0)}%p)`);
+    const negPost = getRepresentativeNegativePost(target.id, today);
+    if (negPost) {
+      if (negPost.title) riskLines.push(`  └ ${negPost.title}`);
+      riskLines.push(`  └ ${negPost.url}`);
+    }
+  }
+
+  if (!riskLines.length) return null;
+  return ['🚨 리스크 감지', '━━━━━━━━━━━━━━━━━━━━━━', ...riskLines].join('\n');
 }
 
 export function formatReport(targets) {
@@ -47,11 +83,17 @@ export function formatReport(targets) {
 
   if (!targets.length) {
     lines.push('⚠️ 추적 타깃이 없습니다. buzz/targets.json에 타깃을 추가하세요.');
-  } else {
-    for (const t of targets) {
-      lines.push(formatTargetBlock(t));
-      lines.push('');
-    }
+    return lines.join('\n').trim();
+  }
+
+  const riskSection = formatRiskSection(targets);
+  if (riskSection) {
+    lines.push(riskSection, '');
+  }
+
+  for (const t of targets) {
+    lines.push(formatTargetBlock(t));
+    lines.push('');
   }
 
   return lines.join('\n').trim();
