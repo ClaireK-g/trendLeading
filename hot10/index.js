@@ -4,7 +4,7 @@
 import { runCollect, runReport } from './pipeline.js';
 import { initDB, upsertRawTopic, getRawTopic } from './db.js';
 import { formatSkeletonReport } from './reporter.js';
-import { parseGoogleTrendsRSS, parseWikiTop } from './sources-kr.js';
+import { parseGoogleTrendsRSS, parseWikiTop, parseNaverRanking, parseTheqooHot } from './sources-kr.js';
 
 const BANNER = `
 ======================================================
@@ -77,6 +77,33 @@ async function main() {
       };
       const wikiItems = parseWikiTop(mockWiki);
       console.log(`[hot10:test] 위키 파서: ${wikiItems.length}건 (기대값 2 — 대문/특수: 제외)`, wikiItems);
+
+      // 네이버 뉴스랭킹 파서 검증 (목업 HTML) — 언론사별 박스에서 1위 기사만 추출 확인 — HT-2 DoD
+      const mockNaverHtml = `
+        <div class="rankingnews_box">
+          <strong class="rankingnews_name">테스트일보</strong>
+          <ul class="rankingnews_list">
+            <li><div class="list_content"><a class="list_title" href="/article/001/1">테스트기사1위</a></div></li>
+            <li><div class="list_content"><a class="list_title" href="/article/001/2">테스트기사2위</a></div></li>
+          </ul>
+        </div>
+        <div class="rankingnews_box">
+          <strong class="rankingnews_name">테스트신문</strong>
+          <ul class="rankingnews_list">
+            <li><div class="list_content"><a class="list_title" href="/article/002/1">다른언론사1위기사</a></div></li>
+          </ul>
+        </div>`;
+      const naverItems = parseNaverRanking(mockNaverHtml);
+      console.log(`[hot10:test] 네이버뉴스랭킹 파서: ${naverItems.length}건 (기대값 2 — 언론사별 1위만)`, naverItems);
+
+      // 더쿠 HOT 파서 검증 (목업 HTML) — HT-2 DoD
+      const mockTheqooHtml = `
+        <table><tbody>
+          <tr><td class="title"><a class="subject" href="/hot/1111">더쿠글제목1</a></td></tr>
+          <tr><td class="title"><a class="subject" href="/hot/2222">더쿠글제목2</a></td></tr>
+        </tbody></table>`;
+      const theqooItems = parseTheqooHot(mockTheqooHtml);
+      console.log(`[hot10:test] 더쿠 파서: ${theqooItems.length}건 (기대값 2)`, theqooItems);
 
       // 라운드 병합(누적 데이터셋) 검증 — 같은 라운드 재실행은 seen_count 불변, best_rank만 갱신,
       // 다음 라운드는 seen_count 증가 (BZ-1 목업 시딩과 동일하게 __test- 접두로 격리)
