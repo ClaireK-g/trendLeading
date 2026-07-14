@@ -3,8 +3,9 @@
 // docs/buzz-analysis-design.md §1). trendLeading 본체와 소스·DB·워크플로가 섞이지 않는다.
 import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
-import { formatSkeletonReport } from './reporter.js';
-import { initDB } from './db.js';
+import { formatReport } from './reporter.js';
+import { initDB, upsertDailyStat } from './db.js';
+import { computeVolumeMetrics } from './metrics.js';
 
 const BANNER = `
 ======================================================
@@ -37,11 +38,35 @@ async function main() {
     }
 
     case 'test': {
-      console.log('[buzz:test] 목업 검증 시작 (텔레그램 발송 없음)\n');
+      console.log('[buzz:test] 목업 검증 시작 (텔레그램 발송 없음, 네트워크 호출 없음)\n');
       initDB();
       const targets = loadTargets();
       console.log(`[buzz:test] 타깃 ${targets.length}개 로드`);
-      const message = formatSkeletonReport(targets);
+
+      // 목업 3일치 버즈량 시딩 — 증감 배율 계산 검증 (BZ-1 DoD)
+      const mockTarget = targets[0];
+      if (mockTarget) {
+        const mockVolumes = [10, 20, 40]; // [그제, 어제, 오늘]
+        mockVolumes.forEach((volume, i) => {
+          const daysAgo = mockVolumes.length - 1 - i;
+          const d = new Date();
+          d.setDate(d.getDate() - daysAgo);
+          upsertDailyStat({
+            target: mockTarget.id,
+            date: d.toISOString().slice(0, 10),
+            channel: 'blog',
+            volume,
+            totalHint: volume * 100,
+          });
+        });
+
+        const vol = computeVolumeMetrics(mockTarget.id);
+        console.log(`\n[buzz:test] "${mockTarget.name}" 버즈량 지표 (목업 10→20→40):`);
+        console.log(`  오늘 ${vol.todayVolume}건 / 전일비 ${vol.vsYesterday?.toFixed(2)}x / 주평균비 ${vol.vs7dayAvg?.toFixed(2)}x`);
+        console.log(`  스파크라인: ${vol.sparkline}`);
+      }
+
+      const message = formatReport(targets);
       console.log('\n[buzz:test] 생성된 리포트 미리보기:\n');
       console.log(message);
       console.log('\n[buzz:test] 목업 테스트 완료');

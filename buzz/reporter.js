@@ -1,9 +1,27 @@
 // buzz/reporter.js — 화제성 리포트 포맷팅 + 발송
-// BZ-0: 타깃 목록만 나열하는 스켈레톤 리포트. 지표(버즈량/감성/연관어/채널분포/스파이크)는
-// BZ-1~BZ-6에서 순서대로 각 섹션이 채워진다 (docs/buzz-analysis-design.md §4, §BZ-7 최종 포맷 참고).
+// 각 지표 섹션(버즈량→BZ-1, 채널분포→BZ-2, 감성→BZ-4, 연관어→BZ-5, 스파이크→BZ-6)이
+// 슬라이스 순서대로 하나씩 추가된다 (docs/buzz-analysis-design.md §4, §BZ-7 최종 포맷 참고).
 import { sendTelegram } from './lib/telegram.js';
+import { computeVolumeMetrics } from './metrics.js';
 
-export function formatSkeletonReport(targets) {
+// null(비교 기준 없음=신규)/0/일반 배율을 사람이 읽는 표기로 변환
+function formatRatio(r) {
+  if (r === null) return '신규';
+  if (r === 0) return '-';
+  const arrow = r >= 1 ? '↑' : '↓';
+  return `×${r.toFixed(1)} ${arrow}`;
+}
+
+function formatTargetBlock(target) {
+  const vol = computeVolumeMetrics(target.id);
+  const lines = [`■ ${target.name}`];
+  lines.push(
+    `버즈량 ${vol.todayVolume}건 (전일 ${formatRatio(vol.vsYesterday)} / 주평균 ${formatRatio(vol.vs7dayAvg)})  ${vol.sparkline}`
+  );
+  return lines.join('\n');
+}
+
+export function formatReport(targets) {
   const date = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
   const time = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
 
@@ -18,8 +36,7 @@ export function formatSkeletonReport(targets) {
     lines.push('⚠️ 추적 타깃이 없습니다. buzz/targets.json에 타깃을 추가하세요.');
   } else {
     for (const t of targets) {
-      lines.push(`■ ${t.name}`);
-      lines.push('데이터 수집 준비 중 (버즈량/감성/연관어/채널분포 — 다음 업데이트에서 제공)');
+      lines.push(formatTargetBlock(t));
       lines.push('');
     }
   }
@@ -27,8 +44,8 @@ export function formatSkeletonReport(targets) {
   return lines.join('\n').trim();
 }
 
-export async function sendSkeletonReport(targets) {
-  const message = formatSkeletonReport(targets);
+export async function sendReport(targets) {
+  const message = formatReport(targets);
 
   try {
     await sendTelegram(message);

@@ -81,3 +81,64 @@ export function initDB() {
 
   return d;
 }
+
+// ---------------------------------------------------------------------------
+// buzz_posts
+// ---------------------------------------------------------------------------
+// 크로스데이 URL dedup — UNIQUE(target,url) 위반 시 조용히 무시(INSERT OR IGNORE),
+// 신규 삽입 여부를 반환해 당일 volume 집계에 사용한다.
+export function insertBuzzPost(post) {
+  const d = getDB();
+  const info = d.prepare(`
+    INSERT OR IGNORE INTO buzz_posts (target, channel, url, title, description, published_at, collected_at)
+    VALUES (@target, @channel, @url, @title, @description, @published_at, @collected_at)
+  `).run({
+    target: post.target,
+    channel: post.channel,
+    url: post.url,
+    title: post.title ?? null,
+    description: post.description ?? null,
+    published_at: post.publishedAt ?? null,
+    collected_at: post.collectedAt ?? new Date().toISOString(),
+  });
+  return info.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// buzz_daily_stats
+// ---------------------------------------------------------------------------
+// 파이프라인은 하루 1회 실행되므로 누적(+=)이 아니라 당일 최종값으로 덮어쓴다(재실행 시 멱등).
+export function upsertDailyStat({ target, date, channel, volume = 0, totalHint = null }) {
+  const d = getDB();
+  d.prepare(`
+    INSERT INTO buzz_daily_stats (target, date, channel, volume, total_hint)
+    VALUES (@target, @date, @channel, @volume, @total_hint)
+    ON CONFLICT(target, date, channel) DO UPDATE SET
+      volume = @volume,
+      total_hint = @total_hint
+  `).run({ target, date, channel, volume, total_hint: totalHint });
+}
+
+export function getDailyStatsForTarget(target, days = 14) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const rows = d.prepare(`
+    SELECT date, channel, volume, total_hint, pos_count, neg_count, neu_count
+    FROM buzz_daily_stats
+    WHERE target = ? AND date >= ?
+    ORDER BY date ASC
+  `).all(target, cutoffStr);
+
+  return rows.map(r => ({
+    date: r.date,
+    channel: r.channel,
+    volume: r.volume,
+    totalHint: r.total_hint,
+    posCount: r.pos_count,
+    negCount: r.neg_count,
+    neuCount: r.neu_count,
+  }));
+}
