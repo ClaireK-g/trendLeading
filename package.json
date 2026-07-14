@@ -11,7 +11,11 @@
     "agents": "node agents-slack/index.js serve",
     "agents:discuss": "node agents-slack/index.js discuss",
     "buzz": "node buzz/index.js run",
-    "buzz:test": "node buzz/index.js test"
+    "buzz:test": "node buzz/index.js test",
+    "hot10": "node hot10/index.js run",
+    "hot10:collect": "node hot10/index.js collect",
+    "hot10:report": "node hot10/index.js report",
+    "hot10:test": "node hot10/index.js test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
