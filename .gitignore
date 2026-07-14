@@ -5,3 +5,4 @@ node_modules/
 *.db-wal
 !data/trend.db
 !data/buzz.db
+!data/hot10.db
