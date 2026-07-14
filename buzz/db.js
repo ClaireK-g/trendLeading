@@ -264,3 +264,15 @@ export function getSpikeForDate(targetId, date) {
     triggerSummary: row.trigger_summary,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 데이터 보존 — buzz_posts는 90일 경과분 정리(DB 비대화 방지). 지표 테이블
+// (buzz_daily_stats/buzz_assoc_words/buzz_spikes)은 영구 보존 (docs/buzz-analysis-design.md §4 BZ-7)
+// ---------------------------------------------------------------------------
+export function pruneOldPosts(days = 90) {
+  const d = getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const info = d.prepare('DELETE FROM buzz_posts WHERE collected_at < ?').run(cutoff.toISOString());
+  return info.changes;
+}

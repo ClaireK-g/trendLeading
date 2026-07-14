@@ -1,6 +1,6 @@
 // buzz/pipeline.js — buzzAnalysis 오케스트레이터 (docs/buzz-analysis-design.md §2, §4)
 // src/pipeline.js를 import하지 않는다 — 완전 격리 원칙.
-import { initDB, getPostChannelCounts, updateCleanVolume, insertSpike } from './db.js';
+import { initDB, getPostChannelCounts, updateCleanVolume, insertSpike, pruneOldPosts } from './db.js';
 import { loadTargets } from './targets.js';
 import { collectDaily } from './collector.js';
 import { cleanDaily } from './cleaner.js';
@@ -68,7 +68,6 @@ export async function runBuzzPipeline() {
         triggerUrls: candidates.map((c) => ({ url: c.url, title: c.title, channel: c.channel })),
         triggerSummary: summary,
       });
-      console.log(`[buzz:pipeline] ${target.id} 스파이크 감지 (ratio=${spike.ratio})`);
     }
   } catch (err) {
     console.error('[buzz:pipeline] STEP 5 스파이크 감지 실패 (무시하고 계속 진행):', err.message);
@@ -77,5 +76,17 @@ export async function runBuzzPipeline() {
   // STEP 6: 리포트 발송
   const result = await sendReport(targets);
   console.log('[buzz:pipeline] 리포트 발송 결과:', result);
+
+  // 데이터 보존 — buzz_posts 90일 경과분 정리는 주 1회(월요일 KST)만 실행. 지표 테이블은 영구 보존.
+  try {
+    const isMonday = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Seoul', weekday: 'short' }) === 'Mon';
+    if (isMonday) {
+      const removed = pruneOldPosts(90);
+      if (removed) console.log(`[buzz:pipeline] 90일 경과 게시물 ${removed}건 정리`);
+    }
+  } catch (err) {
+    console.error('[buzz:pipeline] 데이터 정리 실패 (무시):', err.message);
+  }
+
   return result;
 }

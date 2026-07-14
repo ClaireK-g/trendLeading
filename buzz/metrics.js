@@ -154,6 +154,9 @@ export function detectSpike(targetId) {
   const ratio = vol.vs7dayAvg; // null = 비교 기준 없음(신규)
   const ratioMet = ratio === null ? vol.todayVolume > 0 : ratio >= config.scoring.spikeRatio;
   const isSpike = ratioMet && vol.todayVolume >= config.scoring.spikeMinVolume;
+  if (isSpike) {
+    console.log(`[buzz:metrics] ${targetId} 스파이크 감지 (오늘 ${vol.todayVolume}건, 비율 ${ratio === null ? '신규' : ratio.toFixed(2)})`);
+  }
   return { isSpike, ratio, todayVolume: vol.todayVolume };
 }
 

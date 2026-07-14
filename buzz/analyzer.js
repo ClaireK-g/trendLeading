@@ -41,12 +41,14 @@ export async function analyzeSentiment(targetId, date) {
 
   const idToChannel = new Map(posts.map((p) => [p.id, p.channel]));
   const channelCounts = {};
+  let batchCount = 0;
 
   for (let i = 0; i < posts.length; i += config.llm.batchSize) {
     const batch = posts.slice(i, i + config.llm.batchSize);
     let results;
     try {
       results = await callGeminiJSON(buildSentimentPrompt(batch));
+      batchCount++;
     } catch (err) {
       console.warn(`[buzz:analyzer] ${targetId} 감성 배치 실패 (무시): ${err.message}`);
       results = [];
@@ -73,6 +75,7 @@ export async function analyzeSentiment(targetId, date) {
     updateSentimentCounts(targetId, date, channel, counts);
   }
 
+  console.log(`[buzz:analyzer] ${targetId} 감성 배치 ${batchCount}콜`);
   return channelCounts;
 }
 
