@@ -1,0 +1,12 @@
+{
+  "targets": [
+    {
+      "id": "example-target",
+      "name": "예시 타깃 (실제 타깃으로 교체하세요)",
+      "queries": ["예시 검색어"],
+      "exclude": [],
+      "competitors": [],
+      "datalabGroup": "예시 검색어"
+    }
+  ]
+}

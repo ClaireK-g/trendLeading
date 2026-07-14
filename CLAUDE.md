@@ -55,6 +55,13 @@ TELEGRAM_CHAT_ID=
 - DB를 레포에 커밋하여 영구 보관
 - keepalive.yml로 60일 비활성 방지
 
+## buzzAnalysis (화제성 분석 데일리 리포팅)
+사용자가 지정한 타깃(브랜드/제품)의 버즈량·감성·연관어·채널분포를 매일 텔레그램으로 리포트하는
+**완전 격리된 별도 모듈**. `buzz/` 디렉토리에만 존재하며 `src/`를 import하지 않고, 전용 DB
+(`data/buzz.db`)와 전용 워크플로(`buzz-analysis.yml`, KST 07:00)를 쓴다. 실행: `node buzz/index.js run`
+/ `test`. 타깃은 `buzz/targets.json`에 사용자가 직접 등록. 설계·구현 순서(BZ-0~BZ-7)는
+`docs/buzz-analysis-design.md` 참고.
+
 ## 관련 프로젝트
 - **techLeading** (github.com/ClaireK-g/techLeading) — 기술 트렌드 감지 (동일 구조, HN/PH 주력)
 

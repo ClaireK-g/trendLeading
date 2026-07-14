@@ -9,7 +9,9 @@
     "test": "node index.js test",
     "cron": "node index.js cron",
     "agents": "node agents-slack/index.js serve",
-    "agents:discuss": "node agents-slack/index.js discuss"
+    "agents:discuss": "node agents-slack/index.js discuss",
+    "buzz": "node buzz/index.js run",
+    "buzz:test": "node buzz/index.js test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
