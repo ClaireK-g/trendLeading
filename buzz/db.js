@@ -209,3 +209,34 @@ export function getRepresentativeNegativePost(targetId, date) {
   `).get(targetId, date, `${date}%`);
   return row || null;
 }
+
+// ---------------------------------------------------------------------------
+// buzz_assoc_words (STEP 4 analyzer.js — 연관어)
+// ---------------------------------------------------------------------------
+export function upsertAssocWord(target, date, word, count) {
+  const d = getDB();
+  d.prepare(`
+    INSERT INTO buzz_assoc_words (target, date, word, count)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(target, date, word) DO UPDATE SET count = excluded.count
+  `).run(target, date, word, count);
+}
+
+export function getAssocWordsForDate(targetId, date, limit = 15) {
+  const d = getDB();
+  return d.prepare(`
+    SELECT word, count FROM buzz_assoc_words WHERE target = ? AND date = ? ORDER BY count DESC LIMIT ?
+  `).all(targetId, date, limit);
+}
+
+// [startDate, endDate) 범위의 날짜별 count를 단어별로 합산해 상위 N개 단어 집합을 반환 —
+// "직전 7일 톱10" 기준선(신규 진입어 판정용)
+export function getTopAssocWordsInRange(targetId, startDate, endDate, limit = 10) {
+  const d = getDB();
+  const rows = d.prepare(`
+    SELECT word, SUM(count) as total FROM buzz_assoc_words
+    WHERE target = ? AND date >= ? AND date < ?
+    GROUP BY word ORDER BY total DESC LIMIT ?
+  `).all(targetId, startDate, endDate, limit);
+  return new Set(rows.map((r) => r.word));
+}

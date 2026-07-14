@@ -4,8 +4,8 @@
 import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
 import { formatReport } from './reporter.js';
-import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts, updateSentimentCounts, setPostSentiment, getPostByUrl } from './db.js';
-import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics } from './metrics.js';
+import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts, updateSentimentCounts, setPostSentiment, getPostByUrl, upsertAssocWord } from './db.js';
+import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics, computeAssocWordsMetrics } from './metrics.js';
 import { cleanTargetPosts } from './cleaner.js';
 
 const BANNER = `
@@ -118,6 +118,26 @@ async function main() {
           `\n[buzz:test] "${mockTarget.name}" 감성 지표: 😊 ${sent.posRatio.toFixed(1)}% 😐 ${sent.neuRatio.toFixed(1)}% 😡 ${sent.negRatio.toFixed(1)}% ` +
           `(전일 대비 +${sent.negDeltaPP.toFixed(1)}%p) → 리스크: ${sent.isRisk ? '🚨 감지' : '없음'}`
         );
+
+        // 목업 연관어 — 신규 진입어 판정(직전 7일 톱10 비교) 검증 (BZ-5 DoD)
+        const day = (n) => {
+          const d = new Date();
+          d.setDate(d.getDate() - n);
+          return d.toISOString().slice(0, 10);
+        };
+        upsertAssocWord(mockTarget.id, day(3), '쫀득', 15);
+        upsertAssocWord(mockTarget.id, day(3), '딸기', 12);
+        upsertAssocWord(mockTarget.id, day(2), '웨이팅', 8);
+        upsertAssocWord(mockTarget.id, day(1), '선물', 6);
+        upsertAssocWord(mockTarget.id, today, '쫀득', 21);
+        upsertAssocWord(mockTarget.id, today, '딸기', 18);
+        upsertAssocWord(mockTarget.id, today, '웨이팅', 11);
+        upsertAssocWord(mockTarget.id, today, '선물', 9);
+        upsertAssocWord(mockTarget.id, today, '품절대란', 15);
+
+        const assoc = computeAssocWordsMetrics(mockTarget.id);
+        console.log(`\n[buzz:test] "${mockTarget.name}" 연관어: ${assoc.words.map((w) => `${w.word}(${w.count})`).join(' · ')}`);
+        console.log(`[buzz:test] 신규 진입어: ${assoc.newEntries.join(', ') || '없음'} (기대값: 품절대란)`);
       }
 
       const message = formatReport(targets);

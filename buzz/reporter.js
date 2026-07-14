@@ -2,7 +2,7 @@
 // 각 지표 섹션(버즈량→BZ-1, 채널분포→BZ-2, 감성→BZ-4, 연관어→BZ-5, 스파이크→BZ-6)이
 // 슬라이스 순서대로 하나씩 추가된다 (docs/buzz-analysis-design.md §4, §BZ-7 최종 포맷 참고).
 import { sendTelegram } from './lib/telegram.js';
-import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics } from './metrics.js';
+import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics, computeAssocWordsMetrics } from './metrics.js';
 import { getRepresentativeNegativePost } from './db.js';
 
 function todayStr() {
@@ -28,10 +28,21 @@ function formatSentimentLine(sent) {
   return `감성: 😊 ${Math.round(sent.posRatio)}% · 😐 ${Math.round(sent.neuRatio)}% · 😡 ${Math.round(sent.negRatio)}%`;
 }
 
+function formatAssocWordsLine(assoc) {
+  if (!assoc.words.length) return null;
+  const top = assoc.words.slice(0, 4).map((w) => `${w.word}(${w.count})`).join(' · ');
+  const lines = [`연관어: ${top}`];
+  if (assoc.newEntries.length) {
+    lines.push(`🆕 신규: ${assoc.newEntries.map((w) => `"${w}"`).join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
 function formatTargetBlock(target) {
   const vol = computeVolumeMetrics(target.id);
   const shares = computeChannelShare(target.id);
   const sent = computeSentimentMetrics(target.id);
+  const assoc = computeAssocWordsMetrics(target.id);
   const lines = [`■ ${target.name}`];
 
   const volumeNotes = [];
@@ -45,6 +56,9 @@ function formatTargetBlock(target) {
 
   const sentLine = formatSentimentLine(sent);
   if (sentLine) lines.push(sentLine);
+
+  const assocLine = formatAssocWordsLine(assoc);
+  if (assocLine) lines.push(assocLine);
 
   return lines.join('\n');
 }

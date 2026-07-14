@@ -1,5 +1,5 @@
 // buzz/metrics.js — STEP 5 지표 산출. docs/buzz-analysis-design.md §4 BZ-1(버즈량 증감·스파크라인)
-import { getDailyStatsForTarget, getNoiseCountForDate } from './db.js';
+import { getDailyStatsForTarget, getNoiseCountForDate, getAssocWordsForDate, getTopAssocWordsInRange } from './db.js';
 import config from './config.js';
 
 const SPARK_BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -145,4 +145,16 @@ export function computeSentimentMetrics(targetId) {
     negDeltaPP,
     isRisk,
   };
+}
+
+// 오늘 연관어 톱10 + 신규 진입어(직전 7일 톱10에 없던 단어) (docs/buzz-analysis-design.md §4 BZ-5)
+export function computeAssocWordsMetrics(targetId) {
+  const today = dateStr(0);
+  const todayWords = getAssocWordsForDate(targetId, today, 10);
+  if (!todayWords.length) return { words: [], newEntries: [] };
+
+  const prevTopSet = getTopAssocWordsInRange(targetId, dateStr(7), today, 10);
+  const newEntries = todayWords.filter((w) => !prevTopSet.has(w.word)).map((w) => w.word);
+
+  return { words: todayWords, newEntries };
 }

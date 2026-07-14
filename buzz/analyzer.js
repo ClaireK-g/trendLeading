@@ -1,6 +1,6 @@
-// buzz/analyzer.js — STEP 4 질적 분석(감성). docs/buzz-analysis-design.md §4 BZ-4
+// buzz/analyzer.js — STEP 4 질적 분석(감성 BZ-4, 연관어 BZ-5). docs/buzz-analysis-design.md §4
 import { callGeminiJSON } from './lib/gemini.js';
-import { getDB, setPostSentiment, updateSentimentCounts } from './db.js';
+import { getDB, setPostSentiment, updateSentimentCounts, upsertAssocWord } from './db.js';
 import config from './config.js';
 
 function sleep(ms) {
@@ -76,15 +76,75 @@ export async function analyzeSentiment(targetId, date) {
   return channelCounts;
 }
 
+function buildAssocWordsPrompt(posts) {
+  const items = posts
+    .map((p) => `${p.title || ''} ${p.description || ''}`.trim())
+    .filter(Boolean)
+    .slice(0, 60);
+
+  return `너는 F&B 화제성 분석가다. 아래 게시물들에서 타깃과 함께 가장 많이 언급된 연관어(명사/키워드)
+상위 15개를 추출하라.
+
+# 규칙
+- 조사·의미 없는 부사(진짜, 완전, 너무 등)는 제외
+- 타깃 이름 자체는 제외
+- count_hint는 게시물 전체에서 대략 몇 번 등장했는지 추정치
+
+# 입력 게시물
+${JSON.stringify(items)}
+
+# 출력
+JSON 배열만 출력. 없으면 [].
+[{"word":"","count_hint":0,"context":"어떤 맥락에서 언급되는지 한 줄"}]`;
+}
+
+// 타깃당 1콜 — 정제 통과 게시물 전체(최대 60건)로 연관어 톱15 추출 후 buzz_assoc_words 저장
+export async function extractAssociatedWords(targetId, date) {
+  const d = getDB();
+  const posts = d.prepare(`
+    SELECT title, description FROM buzz_posts
+    WHERE target = ? AND is_noise = 0 AND (published_at = ? OR (published_at IS NULL AND collected_at LIKE ?))
+  `).all(targetId, date, `${date}%`);
+
+  if (!posts.length) return [];
+
+  let results;
+  try {
+    results = await callGeminiJSON(buildAssocWordsPrompt(posts));
+  } catch (err) {
+    console.warn(`[buzz:analyzer] ${targetId} 연관어 추출 실패 (무시): ${err.message}`);
+    results = [];
+  }
+  if (!Array.isArray(results)) results = [];
+
+  const words = results
+    .filter((r) => r && typeof r.word === 'string' && r.word.trim())
+    .slice(0, 15)
+    .map((r) => ({ word: r.word.trim(), count: Number(r.count_hint) || 1 }));
+
+  for (const w of words) {
+    upsertAssocWord(targetId, date, w.word, w.count);
+  }
+
+  return words;
+}
+
 export async function analyzeDaily(targets, date) {
   const results = [];
   for (const target of targets) {
     try {
-      const result = await analyzeSentiment(target.id, date);
-      results.push({ target: target.id, channels: result });
+      const sentiment = await analyzeSentiment(target.id, date);
+      results.push({ target: target.id, sentiment });
       console.log(`[buzz:analyzer] ${target.id} 감성 분석 완료`);
     } catch (err) {
       console.warn(`[buzz:analyzer] ${target.id} 감성 분석 실패 (무시): ${err.message}`);
+    }
+
+    try {
+      await extractAssociatedWords(target.id, date);
+      console.log(`[buzz:analyzer] ${target.id} 연관어 추출 완료`);
+    } catch (err) {
+      console.warn(`[buzz:analyzer] ${target.id} 연관어 추출 실패 (무시): ${err.message}`);
     }
   }
   return results;
