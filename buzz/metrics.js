@@ -1,5 +1,5 @@
 // buzz/metrics.js — STEP 5 지표 산출. docs/buzz-analysis-design.md §4 BZ-1(버즈량 증감·스파크라인)
-import { getDailyStatsForTarget } from './db.js';
+import { getDailyStatsForTarget, getNoiseCountForDate } from './db.js';
 
 const SPARK_BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -53,9 +53,12 @@ export function computeVolumeMetrics(targetId, days = 14) {
   const last7 = series.slice(-8, -1); // 오늘을 제외한 최근 7일
   const avg7 = last7.length ? last7.reduce((s, d) => s + d.volume, 0) / last7.length : 0;
 
+  const todayNoiseCount = getNoiseCountForDate(targetId, dateStr(0));
+
   return {
     series,
     todayVolume,
+    todayNoiseCount,
     vsYesterday: ratio(todayVolume, yesterdayVolume),
     vs7dayAvg: ratio(todayVolume, avg7),
     sparkline: sparkline(series.map((d) => d.volume)),

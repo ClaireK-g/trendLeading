@@ -142,3 +142,35 @@ export function getDailyStatsForTarget(target, days = 14) {
     neuCount: r.neu_count,
   }));
 }
+
+// STEP 3(cleaner.js) 정제 후 채널별 클린/노이즈 게시물 수 — buzz_posts가 진실 원천(source of truth)
+export function getPostChannelCounts(targetId, date) {
+  const d = getDB();
+  const rows = d.prepare(`
+    SELECT channel,
+           SUM(CASE WHEN is_noise = 0 THEN 1 ELSE 0 END) as clean_count,
+           SUM(CASE WHEN is_noise = 1 THEN 1 ELSE 0 END) as noise_count
+    FROM buzz_posts
+    WHERE target = ? AND (published_at = ? OR (published_at IS NULL AND collected_at LIKE ?))
+    GROUP BY channel
+  `).all(targetId, date, `${date}%`);
+  return rows.map((r) => ({ channel: r.channel, cleanCount: r.clean_count, noiseCount: r.noise_count }));
+}
+
+export function getNoiseCountForDate(targetId, date) {
+  const d = getDB();
+  const row = d.prepare(`
+    SELECT COUNT(*) as cnt FROM buzz_posts
+    WHERE target = ? AND is_noise = 1 AND (published_at = ? OR (published_at IS NULL AND collected_at LIKE ?))
+  `).get(targetId, date, `${date}%`);
+  return row?.cnt ?? 0;
+}
+
+// 정제 후 클린 volume으로 덮어쓴다(total_hint 등 나머지 컬럼은 건드리지 않는 타깃 UPDATE —
+// src/db.js setSearchability()와 동일 패턴).
+export function updateCleanVolume(target, date, channel, volume) {
+  const d = getDB();
+  d.prepare(`
+    UPDATE buzz_daily_stats SET volume = ? WHERE target = ? AND date = ? AND channel = ?
+  `).run(volume, target, date, channel);
+}

@@ -22,9 +22,13 @@ function formatTargetBlock(target) {
   const vol = computeVolumeMetrics(target.id);
   const shares = computeChannelShare(target.id);
   const lines = [`■ ${target.name}`];
-  lines.push(
-    `버즈량 ${vol.todayVolume}건 (전일 ${formatRatio(vol.vsYesterday)} / 주평균 ${formatRatio(vol.vs7dayAvg)})  ${vol.sparkline}`
-  );
+
+  const volumeNotes = [];
+  if (vol.todayNoiseCount > 0) volumeNotes.push(`노이즈 ${vol.todayNoiseCount}건 제외`);
+  volumeNotes.push(`전일 ${formatRatio(vol.vsYesterday)}`);
+  volumeNotes.push(`주평균 ${formatRatio(vol.vs7dayAvg)}`);
+  lines.push(`버즈량 ${vol.todayVolume}건 (${volumeNotes.join(' / ')})  ${vol.sparkline}`);
+
   const shareLine = formatChannelShareLine(shares);
   if (shareLine) lines.push(shareLine);
   return lines.join('\n');

@@ -4,8 +4,9 @@
 import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
 import { formatReport } from './reporter.js';
-import { initDB, upsertDailyStat } from './db.js';
+import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts } from './db.js';
 import { computeVolumeMetrics, computeChannelShare } from './metrics.js';
+import { cleanTargetPosts } from './cleaner.js';
 
 const BANNER = `
 ======================================================
@@ -83,6 +84,22 @@ async function main() {
         for (const s of shares) {
           console.log(`  ${s.label}: ${s.share.toFixed(1)}% (전주 대비 ${s.deltaPP >= 0 ? '+' : ''}${s.deltaPP.toFixed(1)}%p) ${s.arrow}`);
         }
+
+        // 목업 정제 함정 — 협찬 글(광고)/동음이의 글/도배 3연글 + 정상 글 1건 (BZ-3 DoD)
+        const today = new Date().toISOString().slice(0, 10);
+        const nowIso = new Date().toISOString();
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://trap-ad.example.com/1', title: '[협찬] 예시 타깃 솔직 리뷰', description: '이 포스팅은 원고료를 받아 작성되었습니다', publishedAt: today, collectedAt: nowIso });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://trap-homonym.example.com/1', title: '예시 검색어 레시피 재료 구매 후기', description: '마트에서 예시 검색어 1kg 사왔어요 요리에 씁니다', publishedAt: today, collectedAt: nowIso });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://trap-spam.example.com/1', title: '예시 타깃 완전 대박 신상 후기', description: '지금 바로 주문하세요', publishedAt: today, collectedAt: nowIso });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://trap-spam.example.com/2', title: '예시 타깃 완전 대박 신상 리뷰', description: '지금 바로 주문하세요', publishedAt: today, collectedAt: nowIso });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://trap-spam.example.com/3', title: '예시 타깃 완전 대박 신상 소개', description: '지금 바로 주문하세요', publishedAt: today, collectedAt: nowIso });
+        insertBuzzPost({ target: mockTarget.id, channel: 'blog', url: 'https://real.example.com/1', title: '진짜 예시 타깃 먹어본 솔직 후기', description: '웨이팅 30분 했지만 맛있었어요', publishedAt: today, collectedAt: nowIso });
+
+        const cleanResult = cleanTargetPosts(mockTarget.id, today, ['레시피 재료']);
+        console.log(`\n[buzz:test] 정제 함정 결과: 광고 ${cleanResult.adCount}건, 도배 ${cleanResult.spamCount}건, 동음이의 ${cleanResult.homonymCount}건 (기대값: 1/3/1)`);
+
+        const postCounts = getPostChannelCounts(mockTarget.id, today);
+        console.log('[buzz:test] 채널별 클린/노이즈 게시물 수:', postCounts);
       }
 
       const message = formatReport(targets);
