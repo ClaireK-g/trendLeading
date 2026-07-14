@@ -18,6 +18,29 @@ function jitterDelay() {
   return 1000 + Math.random() * 2000;
 }
 
+// 크롤링 대상 페이지가 UTF-8이 아닐 수 있어(예: 네이버 뉴스랭킹은 EUC-KR 관측됨, 2026-07-14
+// 실배치 로그에서 한글 깨짐 확인) Content-Type 헤더 → <meta charset> → euc-kr(관측된 기본값)
+// 순으로 인코딩을 판별해 디코딩한다. Node 내장 TextDecoder로 충분해 신규 의존성 불필요.
+function decodeHtml(buffer, contentTypeHeader) {
+  const headerMatch = /charset=([^;]+)/i.exec(contentTypeHeader || '');
+  let charset = headerMatch ? headerMatch[1].trim().toLowerCase() : null;
+
+  if (!charset) {
+    const preview = Buffer.from(buffer).toString('latin1').slice(0, 2000);
+    const metaMatch = /charset=["']?([\w-]+)/i.exec(preview);
+    charset = metaMatch ? metaMatch[1].toLowerCase() : 'euc-kr';
+  }
+
+  if (charset === 'utf-8' || charset === 'utf8') {
+    return Buffer.from(buffer).toString('utf-8');
+  }
+  try {
+    return new TextDecoder(charset).decode(buffer);
+  } catch {
+    return new TextDecoder('euc-kr').decode(buffer);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 구글트렌드 KR — RSS 급상승 검색어
 // ---------------------------------------------------------------------------
@@ -89,8 +112,9 @@ export async function fetchNaverRanking() {
   const res = await axios.get('https://news.naver.com/main/ranking/popularDay.naver', {
     timeout: 10000,
     headers: { 'User-Agent': USER_AGENT },
+    responseType: 'arraybuffer',
   });
-  return res.data;
+  return decodeHtml(res.data, res.headers['content-type']);
 }
 
 // 언론사별 랭킹 박스에서 각 박스의 1위 기사를 모아 통합 랭킹 생성
@@ -124,8 +148,9 @@ export async function fetchTheqooHot() {
   const res = await axios.get('https://theqoo.net/hot', {
     timeout: 10000,
     headers: { 'User-Agent': USER_AGENT },
+    responseType: 'arraybuffer',
   });
-  return res.data;
+  return decodeHtml(res.data, res.headers['content-type']);
 }
 
 export function parseTheqooHot(html, limit = 20) {
@@ -154,8 +179,9 @@ export async function fetchNatepannRanking() {
   const res = await axios.get('https://pann.nate.com/talk/ranking/d', {
     timeout: 10000,
     headers: { 'User-Agent': USER_AGENT },
+    responseType: 'arraybuffer',
   });
-  return res.data;
+  return decodeHtml(res.data, res.headers['content-type']);
 }
 
 export function parseNatepannRanking(html, limit = 20) {
