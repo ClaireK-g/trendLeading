@@ -4,8 +4,8 @@
 import { runBuzzPipeline } from './pipeline.js';
 import { loadTargets } from './targets.js';
 import { formatReport } from './reporter.js';
-import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts, updateSentimentCounts, setPostSentiment, getPostByUrl, upsertAssocWord } from './db.js';
-import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics, computeAssocWordsMetrics } from './metrics.js';
+import { initDB, upsertDailyStat, insertBuzzPost, getPostChannelCounts, updateSentimentCounts, setPostSentiment, getPostByUrl, upsertAssocWord, insertSpike, getSpikeForDate } from './db.js';
+import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics, computeAssocWordsMetrics, detectSpike } from './metrics.js';
 import { cleanTargetPosts } from './cleaner.js';
 
 const BANNER = `
@@ -138,6 +138,21 @@ async function main() {
         const assoc = computeAssocWordsMetrics(mockTarget.id);
         console.log(`\n[buzz:test] "${mockTarget.name}" 연관어: ${assoc.words.map((w) => `${w.word}(${w.count})`).join(' · ')}`);
         console.log(`[buzz:test] 신규 진입어: ${assoc.newEntries.join(', ') || '없음'} (기대값: 품절대란)`);
+
+        // 스파이크 감지 + 저장 중복방지(쿨다운) 검증 — 트리거 요약은 실제 Gemini 호출 없이 목업으로 대체 (BZ-6 DoD)
+        const spike = detectSpike(mockTarget.id);
+        console.log(
+          `\n[buzz:test] "${mockTarget.name}" 스파이크 판정: 오늘 ${spike.todayVolume}건, 7일평균 대비 ` +
+          `${spike.ratio === null ? '신규' : `×${spike.ratio.toFixed(2)}`} → ${spike.isSpike ? '⚡ 스파이크 감지' : '평시'}`
+        );
+
+        if (spike.isSpike) {
+          const triggerUrls = [{ url: 'https://trigger-news.example.com/1', title: '예시 타깃 MBC 방송 소개', channel: 'news' }];
+          const first = insertSpike({ target: mockTarget.id, date: today, ratio: spike.ratio, triggerUrls, triggerSummary: 'MBC 방송 소개 (목업 트리거 요약)' });
+          const second = insertSpike({ target: mockTarget.id, date: today, ratio: spike.ratio, triggerUrls: [], triggerSummary: '재실행 시도(무시되어야 함)' });
+          console.log(`[buzz:test] 스파이크 저장: 최초 ${first ? '성공' : '실패'}, 같은 날 재시도 ${second ? '성공(버그!)' : '무시됨(정상 — UNIQUE 쿨다운)'}`);
+          console.log('[buzz:test] 저장된 스파이크:', getSpikeForDate(mockTarget.id, today));
+        }
       }
 
       const message = formatReport(targets);

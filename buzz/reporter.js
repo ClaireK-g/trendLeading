@@ -3,7 +3,7 @@
 // 슬라이스 순서대로 하나씩 추가된다 (docs/buzz-analysis-design.md §4, §BZ-7 최종 포맷 참고).
 import { sendTelegram } from './lib/telegram.js';
 import { computeVolumeMetrics, computeChannelShare, computeSentimentMetrics, computeAssocWordsMetrics } from './metrics.js';
-import { getRepresentativeNegativePost } from './db.js';
+import { getRepresentativeNegativePost, getSpikeForDate } from './db.js';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -38,11 +38,22 @@ function formatAssocWordsLine(assoc) {
   return lines.join('\n');
 }
 
+function formatSpikeLine(spike) {
+  if (!spike) return null;
+  const ratioText = spike.ratio === null ? '신규 급증' : `×${spike.ratio.toFixed(1)}`;
+  const lines = [`⚡ 스파이크: 7일 평균 대비 ${ratioText}`];
+  if (spike.triggerSummary) lines.push(`└ 원인 추정: ${spike.triggerSummary}`);
+  const topUrl = spike.triggerUrls?.[0]?.url;
+  if (topUrl) lines.push(`└ ${topUrl}`);
+  return lines.join('\n');
+}
+
 function formatTargetBlock(target) {
   const vol = computeVolumeMetrics(target.id);
   const shares = computeChannelShare(target.id);
   const sent = computeSentimentMetrics(target.id);
   const assoc = computeAssocWordsMetrics(target.id);
+  const spike = getSpikeForDate(target.id, todayStr());
   const lines = [`■ ${target.name}`];
 
   const volumeNotes = [];
@@ -59,6 +70,9 @@ function formatTargetBlock(target) {
 
   const assocLine = formatAssocWordsLine(assoc);
   if (assocLine) lines.push(assocLine);
+
+  const spikeLine = formatSpikeLine(spike);
+  if (spikeLine) lines.push(spikeLine);
 
   return lines.join('\n');
 }

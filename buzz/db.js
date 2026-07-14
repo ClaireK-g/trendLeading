@@ -240,3 +240,27 @@ export function getTopAssocWordsInRange(targetId, startDate, endDate, limit = 10
   `).all(targetId, startDate, endDate, limit);
   return new Set(rows.map((r) => r.word));
 }
+
+// ---------------------------------------------------------------------------
+// buzz_spikes (STEP 5 — 스파이크 감지 + 트리거 역추적)
+// ---------------------------------------------------------------------------
+// UNIQUE(target,date) 위반 시 조용히 무시 — 같은 날 재실행 시 중복 저장/재알림 방지(쿨다운 역할).
+export function insertSpike({ target, date, ratio, triggerUrls, triggerSummary }) {
+  const d = getDB();
+  const info = d.prepare(`
+    INSERT OR IGNORE INTO buzz_spikes (target, date, ratio, trigger_urls, trigger_summary)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(target, date, ratio ?? null, JSON.stringify(triggerUrls || []), triggerSummary || null);
+  return info.changes > 0;
+}
+
+export function getSpikeForDate(targetId, date) {
+  const d = getDB();
+  const row = d.prepare('SELECT * FROM buzz_spikes WHERE target = ? AND date = ?').get(targetId, date);
+  if (!row) return null;
+  return {
+    ratio: row.ratio,
+    triggerUrls: JSON.parse(row.trigger_urls || '[]'),
+    triggerSummary: row.trigger_summary,
+  };
+}

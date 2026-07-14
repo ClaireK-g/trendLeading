@@ -147,6 +147,16 @@ export function computeSentimentMetrics(targetId) {
   };
 }
 
+// 스파이크(버즈량 급증) 판정 — 7일 평균 대비 spikeRatio배 이상 AND 최소 volume 이상.
+// 베이스라인이 0이면 비율 비교가 무의미하므로 volume 최소치만으로 판정(docs/buzz-analysis-design.md §4 BZ-6).
+export function detectSpike(targetId) {
+  const vol = computeVolumeMetrics(targetId);
+  const ratio = vol.vs7dayAvg; // null = 비교 기준 없음(신규)
+  const ratioMet = ratio === null ? vol.todayVolume > 0 : ratio >= config.scoring.spikeRatio;
+  const isSpike = ratioMet && vol.todayVolume >= config.scoring.spikeMinVolume;
+  return { isSpike, ratio, todayVolume: vol.todayVolume };
+}
+
 // 오늘 연관어 톱10 + 신규 진입어(직전 7일 톱10에 없던 단어) (docs/buzz-analysis-design.md §4 BZ-5)
 export function computeAssocWordsMetrics(targetId) {
   const today = dateStr(0);

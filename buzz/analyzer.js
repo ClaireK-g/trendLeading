@@ -129,6 +129,62 @@ export async function extractAssociatedWords(targetId, date) {
   return words;
 }
 
+// 스파이크 당일 트리거 후보 선정 — ①뉴스 우선 ②제목에 타깃명 정확 포함 ③발행 빠른 순
+function selectTriggerCandidates(targetId, date, targetName) {
+  const d = getDB();
+  const posts = d.prepare(`
+    SELECT url, title, channel, published_at, collected_at FROM buzz_posts
+    WHERE target = ? AND is_noise = 0 AND (published_at = ? OR (published_at IS NULL AND collected_at LIKE ?))
+  `).all(targetId, date, `${date}%`);
+
+  const scored = posts.map((p) => {
+    let score = 0;
+    if (p.channel === 'news') score += 2;
+    if (targetName && p.title && p.title.includes(targetName)) score += 1;
+    return { ...p, score };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const at = a.published_at || a.collected_at || '';
+    const bt = b.published_at || b.collected_at || '';
+    return at.localeCompare(bt);
+  });
+
+  return scored.slice(0, 3);
+}
+
+function buildTriggerPrompt(targetName, candidates) {
+  const items = candidates.map((c) => ({ title: c.title, channel: c.channel }));
+  return `너는 F&B 화제성 분석가다. "${targetName}"의 언급량이 갑자기 급증했다. 아래 게시물 제목들을
+보고 무슨 일이 있었는지 한 줄로 추정하라. 근거가 부족하면 억지로 추정하지 마라.
+
+# 입력
+${JSON.stringify(items)}
+
+# 출력
+JSON 배열만 출력(원소 1개). 근거 부족 시 [].
+[{"summary":"무슨 일이 있었는지 한 줄 요약"}]`;
+}
+
+// 스파이크 감지 시 원인 후보 톱3 선정 + Gemini 1콜로 원인 요약
+export async function summarizeSpikeTrigger(targetId, date, targetName) {
+  const candidates = selectTriggerCandidates(targetId, date, targetName);
+  if (!candidates.length) return { candidates: [], summary: null };
+
+  let result;
+  try {
+    result = await callGeminiJSON(buildTriggerPrompt(targetName, candidates));
+  } catch (err) {
+    console.warn(`[buzz:analyzer] ${targetId} 트리거 요약 실패 (무시): ${err.message}`);
+    result = [];
+  }
+  if (!Array.isArray(result)) result = [];
+  const summary = typeof result[0]?.summary === 'string' ? result[0].summary : null;
+
+  return { candidates, summary };
+}
+
 export async function analyzeDaily(targets, date) {
   const results = [];
   for (const target of targets) {

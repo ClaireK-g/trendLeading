@@ -1,10 +1,11 @@
 // buzz/pipeline.js — buzzAnalysis 오케스트레이터 (docs/buzz-analysis-design.md §2, §4)
 // src/pipeline.js를 import하지 않는다 — 완전 격리 원칙.
-import { initDB, getPostChannelCounts, updateCleanVolume } from './db.js';
+import { initDB, getPostChannelCounts, updateCleanVolume, insertSpike } from './db.js';
 import { loadTargets } from './targets.js';
 import { collectDaily } from './collector.js';
 import { cleanDaily } from './cleaner.js';
-import { analyzeDaily } from './analyzer.js';
+import { analyzeDaily, summarizeSpikeTrigger } from './analyzer.js';
+import { detectSpike } from './metrics.js';
 import { sendReport } from './reporter.js';
 import config from './config.js';
 
@@ -52,7 +53,26 @@ export async function runBuzzPipeline() {
     console.error('[buzz:pipeline] STEP 4 감성 분석 실패 (무시하고 계속 진행):', err.message);
   }
 
-  // STEP 5(연관어/스파이크 등 지표산출 세부)는 BZ-5~BZ-6에서 순서대로 추가된다.
+  // STEP 5: 스파이크 감지 + 트리거 역추적
+  try {
+    const today = todayStr();
+    for (const target of targets) {
+      const spike = detectSpike(target.id);
+      if (!spike.isSpike) continue;
+
+      const { candidates, summary } = await summarizeSpikeTrigger(target.id, today, target.name);
+      insertSpike({
+        target: target.id,
+        date: today,
+        ratio: spike.ratio,
+        triggerUrls: candidates.map((c) => ({ url: c.url, title: c.title, channel: c.channel })),
+        triggerSummary: summary,
+      });
+      console.log(`[buzz:pipeline] ${target.id} 스파이크 감지 (ratio=${spike.ratio})`);
+    }
+  } catch (err) {
+    console.error('[buzz:pipeline] STEP 5 스파이크 감지 실패 (무시하고 계속 진행):', err.message);
+  }
 
   // STEP 6: 리포트 발송
   const result = await sendReport(targets);
