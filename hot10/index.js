@@ -2,8 +2,9 @@
 // CLI entry point for hot10(buzzAnalysis) — src/·buzz/의 어떤 파일도 import하지 않는다
 // (완전 격리 원칙, docs/hot10-design.md §1).
 import { runCollect, runReport } from './pipeline.js';
-import { initDB } from './db.js';
+import { initDB, upsertRawTopic, getRawTopic } from './db.js';
 import { formatSkeletonReport } from './reporter.js';
+import { parseGoogleTrendsRSS, parseWikiTop } from './sources-kr.js';
 
 const BANNER = `
 ======================================================
@@ -53,8 +54,51 @@ async function main() {
     case 'test': {
       console.log('[hot10:test] 목업 검증 시작 (텔레그램 발송 없음, 네트워크 호출 없음)\n');
       initDB();
+
+      // 구글트렌드 RSS 파서 검증 (목업 XML, 실제 페치 없음) — HT-1 DoD
+      const mockRSS = `<?xml version="1.0"?>
+<rss><channel>
+<item><title>테스트키워드1</title><ht:approx_traffic xmlns:ht="https://trends.google.com/trending/rss">10000+</ht:approx_traffic><link>https://trends.google.com/trending?q=1</link></item>
+<item><title>테스트키워드2</title><ht:approx_traffic xmlns:ht="https://trends.google.com/trending/rss">5000+</ht:approx_traffic><link>https://trends.google.com/trending?q=2</link></item>
+</channel></rss>`;
+      const gtrendsItems = parseGoogleTrendsRSS(mockRSS);
+      console.log(`[hot10:test] 구글트렌드 파서: ${gtrendsItems.length}건 (기대값 2)`, gtrendsItems);
+
+      // 위키 파서 검증 (목업 JSON) — 대문/특수: 네임스페이스 제외 확인
+      const mockWiki = {
+        items: [{
+          articles: [
+            { article: '대문', views: 999999, rank: 1 },
+            { article: '테스트_문서', views: 5000, rank: 2 },
+            { article: '특수:검색', views: 3000, rank: 3 },
+            { article: '진짜_문서', views: 2000, rank: 4 },
+          ],
+        }],
+      };
+      const wikiItems = parseWikiTop(mockWiki);
+      console.log(`[hot10:test] 위키 파서: ${wikiItems.length}건 (기대값 2 — 대문/특수: 제외)`, wikiItems);
+
+      // 라운드 병합(누적 데이터셋) 검증 — 같은 라운드 재실행은 seen_count 불변, best_rank만 갱신,
+      // 다음 라운드는 seen_count 증가 (BZ-1 목업 시딩과 동일하게 __test- 접두로 격리)
+      const bucket1 = new Date('2026-07-15T03:00:00Z'); // 6시간 버킷 A
+      const bucket2 = new Date('2026-07-15T09:00:00Z'); // 6시간 버킷 B (다음 라운드)
+      const date = bucket1.toISOString().slice(0, 10);
+
+      upsertRawTopic({ region: 'kr', source: 'gtrends', title: '__test-topic', rank: 5, now: bucket1 });
+      upsertRawTopic({ region: 'kr', source: 'gtrends', title: '__test-topic', rank: 3, now: bucket1 }); // 같은 라운드 재실행
+      const afterSameRound = getRawTopic('kr', 'gtrends', date, '__test-topic');
+      console.log(
+        `[hot10:test] 같은 라운드 재실행: seenCount=${afterSameRound.seenCount}(기대값 1), bestRank=${afterSameRound.bestRank}(기대값 3)`
+      );
+
+      upsertRawTopic({ region: 'kr', source: 'gtrends', title: '__test-topic', rank: 1, now: bucket2 }); // 다음 라운드
+      const afterNextRound = getRawTopic('kr', 'gtrends', date, '__test-topic');
+      console.log(
+        `[hot10:test] 다음 라운드: seenCount=${afterNextRound.seenCount}(기대값 2), bestRank=${afterNextRound.bestRank}(기대값 1)`
+      );
+
       const message = formatSkeletonReport();
-      console.log('[hot10:test] 생성된 리포트 미리보기:\n');
+      console.log('\n[hot10:test] 생성된 리포트 미리보기:\n');
       console.log(message);
       console.log('\n[hot10:test] 목업 테스트 완료');
       break;

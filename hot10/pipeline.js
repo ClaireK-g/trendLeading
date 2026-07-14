@@ -2,17 +2,23 @@
 // src/·buzz/의 어떤 파일도 import하지 않는다 — 완전 격리 원칙.
 // 수집(collect)과 리포트(report)를 분리한다 — 수집은 하루 4회(LLM 0콜), 리포트는 하루 1회(LLM 2콜).
 import { initDB } from './db.js';
+import { collectKR } from './sources-kr.js';
 import { sendSkeletonReport } from './reporter.js';
 
-// STEP C1~C2(한국/글로벌 수집)는 HT-1~HT-3에서 순서대로 추가된다.
 export async function runCollect() {
   console.log('[hot10:pipeline] 수집(collect) 시작');
   initDB();
 
-  // STEP C1: 한국 수집 (구글트렌드 KR + 위키 KO + 네이버 뉴스랭킹 + 더쿠) — HT-1, HT-2
-  // STEP C2: 글로벌 수집 (구글트렌드 US + 레딧 + 위키 EN + HN) — HT-3
+  // STEP C1: 한국 수집 (구글트렌드 KR + 위키 KO — HT-1. 네이버 뉴스랭킹·더쿠는 HT-2에서 추가)
+  try {
+    await collectKR();
+  } catch (err) {
+    console.error('[hot10:pipeline] STEP C1 한국 수집 실패 (무시하고 계속 진행):', err.message);
+  }
 
-  console.log('[hot10:pipeline] 수집(collect) 완료 (수집 로직은 HT-1~HT-3에서 추가 예정)');
+  // STEP C2: 글로벌 수집 (구글트렌드 US + 레딧 + 위키 EN + HN)는 HT-3에서 추가된다.
+
+  console.log('[hot10:pipeline] 수집(collect) 완료');
   return { success: true };
 }
 
