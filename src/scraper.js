@@ -385,38 +385,45 @@ async function searchNaver(endpoint, sourceTag, queries = NAVER_DISCOVERY_QUERIE
   let dropped = 0;
   let stale = 0;
 
-  for (const query of queries) {
-    try {
-      const res = await axios.get(`https://openapi.naver.com/v1/search/${endpoint}.json`, {
-        params: { query, display: 10, sort: 'date' },
-        headers: {
-          'X-Naver-Client-Id': clientId,
-          'X-Naver-Client-Secret': clientSecret,
-        },
-        timeout: 10000,
-      });
+  // date(최신순) + sim(관련도순 — 네이버 랭킹에 인기 신호 반영) 이중 수집.
+  // 조회수는 네이버 공개 API가 제공하지 않으므로 sim 정렬이 유일한 "인기 글" 프록시다.
+  // sim 결과도 isRecentEnough(발행 3일) 필터를 통과해야 하므로 "최근 + 인기" 글만 남는다.
+  const SORTS = ['date', 'sim'];
 
-      for (const item of res.data?.items || []) {
-        if (!isRecentEnough(item)) {
-          stale++;
-          continue;
-        }
-        const text = (item.title + ' ' + (item.description || '')).replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').trim();
-        if (!isFoodRelevant(text)) {
-          dropped++;
-          continue;
-        }
-        allPosts.push({
-          account: sourceTag,
-          caption: text,
-          sourceUrl: item.link,
-          collectedAt: new Date().toISOString(),
-          source: sourceTag,
+  for (const query of queries) {
+    for (const sort of SORTS) {
+      try {
+        const res = await axios.get(`https://openapi.naver.com/v1/search/${endpoint}.json`, {
+          params: { query, display: 10, sort },
+          headers: {
+            'X-Naver-Client-Id': clientId,
+            'X-Naver-Client-Secret': clientSecret,
+          },
+          timeout: 10000,
         });
+
+        for (const item of res.data?.items || []) {
+          if (!isRecentEnough(item)) {
+            stale++;
+            continue;
+          }
+          const text = (item.title + ' ' + (item.description || '')).replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').trim();
+          if (!isFoodRelevant(text)) {
+            dropped++;
+            continue;
+          }
+          allPosts.push({
+            account: sourceTag,
+            caption: text,
+            sourceUrl: item.link,
+            collectedAt: new Date().toISOString(),
+            source: sourceTag,
+          });
+        }
+        await randomDelay(300, 800);
+      } catch (err) {
+        console.warn(`[scraper] 네이버 ${endpoint} 검색 실패 (${query}, ${sort}): ${err.message}`);
       }
-      await randomDelay(300, 800);
-    } catch (err) {
-      console.warn(`[scraper] 네이버 ${endpoint} 검색 실패 (${query}): ${err.message}`);
     }
   }
 
